@@ -11,7 +11,7 @@ import {
   unsubscribeCommand,
 } from "./subscribe.js";
 import { syncCommand } from "./sync.js";
-import { testAnnounceCommand } from "./test-announce.js";
+import { testCommand } from "./test.js";
 
 export const commands: BotCommand[] = [
   pingCommand,
@@ -24,5 +24,5 @@ export const commands: BotCommand[] = [
   quotaCommand,
   resultsCommand,
   countriesCommand,
-  testAnnounceCommand,
+  testCommand,
 ];

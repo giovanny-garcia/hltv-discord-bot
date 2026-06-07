@@ -7,10 +7,19 @@ import {
   REST,
   Routes,
 } from "discord.js";
-import type { SlashCommandBuilder, SlashCommandOptionsOnlyBuilder } from "discord.js";
+import type {
+  SlashCommandBuilder,
+  SlashCommandOptionsOnlyBuilder,
+  SlashCommandSubcommandsOnlyBuilder,
+} from "discord.js";
+import { handleMatchBoardButton } from "./handlers/match-board.handler.js";
 
 export interface BotCommand {
-  data: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">;
+  data:
+    | SlashCommandBuilder
+    | SlashCommandOptionsOnlyBuilder
+    | SlashCommandSubcommandsOnlyBuilder
+    | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">;
   execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
 }
 
@@ -49,6 +58,22 @@ export function attachCommandHandler(client: Client, commands: BotCommand[]): vo
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
+    if (interaction.isButton()) {
+      try {
+        const handled = await handleMatchBoardButton(interaction);
+        if (handled) return;
+      } catch (error) {
+        console.error("Button interaction failed:", error);
+        const message = "Something went wrong handling that button.";
+        if (interaction.replied || interaction.deferred) {
+          await interaction.followUp({ content: message, ephemeral: true });
+        } else {
+          await interaction.reply({ content: message, ephemeral: true });
+        }
+      }
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     const command = commandMap.get(interaction.commandName);
