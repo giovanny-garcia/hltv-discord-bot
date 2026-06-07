@@ -176,6 +176,20 @@ export const testCommand: BotCommand = {
           .addStringOption((o) => o.setName("labels").setDescription("Mon,Tue,Wed").setRequired(false))
           .addStringOption((o) => o.setName("values").setDescription("1000,1200,980").setRequired(false)),
       ),
+    )
+    .addSubcommand((sub) =>
+      previewOptions(
+        sub
+          .setName("all")
+          .setDescription("Preview every test UI (bundled ephemeral, or paced public posts)")
+          .addIntegerOption((o) =>
+            o
+              .setName("delay_ms")
+              .setDescription("Delay between public posts (default 1500, min 1000)")
+              .setMinValue(1000)
+              .setMaxValue(5000),
+          ),
+      ),
     ),
   async execute(interaction) {
     try {
