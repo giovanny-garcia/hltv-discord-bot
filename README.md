@@ -1,122 +1,114 @@
-# CS2 Discord Event Tracker Bot
+# CS2 Discord Bot
 
-A Discord bot that announces upcoming CS2 tournaments and matches. Supports **HLTV scraping** and/or the **[GGScore](https://ggscore.net) public API** with smart caching for free-tier quotas.
+A Discord bot that announces upcoming Counter-Strike 2 matches using the [GGScore](https://ggscore.net) public API. Built with **Node.js**, **TypeScript**, **discord.js**, and **SQLite**.
 
-Built with **Node.js**, **TypeScript**, **discord.js**, [`hltv`](https://www.npmjs.com/package/hltv), and **GGScore REST**.
+The bot is designed around GGScore's free tier: API calls happen only when you run `/sync`. Everything else — slash commands, announcements, and the poll loop — reads from a local cache.
 
 ## Features
 
-- **Tournament announcements** (HLTV) — new events and starting-soon reminders
-- **Match announcements** — new matches and starting-soon reminders
-- **GGScore integration** — cache-first design for 3 req/day free tier
-- **Configurable data provider** — `hltv`, `ggscore`, or `both`
-- **SQLite persistence** — guild settings, dedup, API quota tracking, GGScore cache
+- **Match announcements** — new matches and starting-soon reminders in your chosen channel
+- **Cache-first architecture** — respects the 3 requests/day free tier
+- **SQLite persistence** — guild settings, deduplication, API quota tracking, and cached datasets
+- **Slash commands** — browse upcoming matches, results, events, and countries without burning quota
 
 ## Prerequisites
 
 - Node.js 18+
-- Discord bot token
-- GGScore API key (for `DATA_PROVIDER=ggscore` or `both`) from [ggscore.net](https://ggscore.net)
+- A [Discord bot token](https://discord.com/developers/applications)
+- A [GGScore API key](https://ggscore.net)
 
-## Installation
+## Quick start
 
 ```bash
-cd hltv-discord-bot
+git clone <your-repo-url>
+cd cs2-discord-bot
 npm install
 cp .env.example .env
 ```
 
-Edit `.env` with your Discord token and GGScore key.
+Edit `.env` with your Discord credentials and GGScore API key, then:
+
+```bash
+npm run dev
+```
+
+Invite the bot with the `bot` and `applications.commands` scopes. In your server, run `/subscribe` to pick an announcement channel, then `/sync scope:full` once to populate the cache.
 
 ## Environment variables
 
-```env
-DISCORD_TOKEN=
-DISCORD_CLIENT_ID=
-DISCORD_GUILD_ID=
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DISCORD_TOKEN` | Yes | Bot token from the Discord Developer Portal |
+| `DISCORD_CLIENT_ID` | Yes | Application ID |
+| `DISCORD_GUILD_ID` | No | Register slash commands to one guild instantly (recommended for dev) |
+| `GGSCORE_API_KEY` | Yes | API key from the GGScore cabinet |
+| `GGSCORE_BASE_URL` | No | Defaults to `https://ggscore.net` |
+| `GGSCORE_DAILY_LIMIT` | No | Defaults to `3` (set to `100` on Premium) |
+| `GGSCORE_SYNC_ON_START` | No | If `true`, runs a full sync on boot (uses all 3 free requests) |
+| `POLL_INTERVAL_MS` | No | Announcement poll interval (default: 10 minutes) |
 
-# hltv | ggscore | both
-DATA_PROVIDER=ggscore
+**Never commit `.env`.** It is gitignored. If an API key is ever exposed, regenerate it in the GGScore cabinet.
 
-GGSCORE_API_KEY=
-GGSCORE_DAILY_LIMIT=3          # set to 100 after Premium upgrade
-GGSCORE_SYNC_ON_START=false    # true burns all 3 free requests on boot
+## Free tier strategy
 
-POLL_INTERVAL_MS=600000
-```
+| Action | API calls |
+|--------|-----------|
+| `/sync scope:full` | 3 |
+| `/sync scope:upcoming` | 1 |
+| `/sync scope:results` | 1 |
+| `/sync scope:countries` | 1 |
+| `/matches`, `/results`, `/events`, `/countries`, `/quota` | 0 |
+| Poll loop (announcements) | 0 |
 
-**Never commit `.env`.** If your API key was shared in chat, regenerate it in the GGScore cabinet.
+Recommended first run:
 
-## GGScore free tier strategy (3 requests/day)
-
-The bot **never calls GGScore during normal polling**. All features read from a local SQLite cache.
-
-| Action | API calls | Purpose |
-|--------|-----------|---------|
-| `/ggscore-sync scope:full` | 3 | Populate everything for MVP testing |
-| `/ggscore-sync scope:upcoming` | 1 | Refresh upcoming matches |
-| `/ggscore-sync scope:results` | 1 | Refresh recent results |
-| `/ggscore-sync scope:countries` | 1 | Refresh country list |
-| `/ggscore-upcoming` | 0 | Read cache |
-| `/ggscore-results` | 0 | Read cache |
-| `/ggscore-events` | 0 | Unique events from cache |
-| `/ggscore-quota` | 0 | Usage + cache age |
-| Poll loop (ggscore mode) | 0 | Announce from cache only |
-
-### Recommended MVP test flow
-
-1. Start bot with `DATA_PROVIDER=ggscore`
-2. Run **`/ggscore-sync scope:full`** once (uses all 3 daily requests)
-3. Test every command — all read from cache with zero extra API calls
-4. Use the poll loop to verify match announcements from cached upcoming data
-5. When satisfied, upgrade to Premium and set `GGSCORE_DAILY_LIMIT=100`
+1. Start the bot with `GGSCORE_SYNC_ON_START=false`
+2. Run **`/sync scope:full`** once
+3. Test `/matches`, `/events`, and `/results` — all read from cache
+4. Use `/subscribe` and wait for the poll loop to announce upcoming matches
 
 ## Slash commands
 
-### Core
 | Command | Description |
 |---------|-------------|
-| `/ping` | Bot health check |
-| `/subscribe channel:#announcements` | Set announcement channel |
+| `/ping` | Health check |
+| `/subscribe` | Set the announcement channel |
 | `/unsubscribe` | Remove subscription |
-| `/settings` | View/update filters |
+| `/settings` | View or update match announcement settings |
+| `/sync` | Fetch fresh data from GGScore (uses quota) |
+| `/quota` | Daily API usage and cache status |
+| `/matches` | Upcoming matches from cache |
+| `/results` | Recent results from cache |
+| `/events` | Events derived from cached matches |
+| `/countries` | Countries from cache |
 
-### HLTV (when `DATA_PROVIDER` includes hltv)
-| Command | Description |
-|---------|-------------|
-| `/events` | Upcoming HLTV tournaments |
-| `/matches` | Upcoming HLTV matches |
+Commands marked with Manage Server permission: `/subscribe`, `/unsubscribe`, `/settings`, `/sync`.
 
-### GGScore (when `DATA_PROVIDER` includes ggscore)
-| Command | Description |
-|---------|-------------|
-| `/ggscore-sync` | Fetch fresh data (uses quota) |
-| `/ggscore-quota` | Daily usage + cache status |
-| `/ggscore-upcoming` | Cached upcoming matches |
-| `/ggscore-results` | Cached recent results |
-| `/ggscore-events` | Cached unique events |
-| `/ggscore-countries` | Cached countries |
-
-## Running
+## Scripts
 
 ```bash
-npm run dev    # development
-npm run build && npm start
+npm run dev      # development with hot reload
+npm run build    # compile TypeScript to dist/
+npm start        # run compiled bot
 ```
 
-## Data provider modes
+## Architecture
 
-| Mode | Tournaments | Matches | Live API calls |
-|------|-------------|---------|----------------|
-| `hltv` | HLTV scrape | HLTV scrape | Every poll (~2 req) |
-| `ggscore` | N/A (use `/ggscore-events`) | GGScore cache | Only `/ggscore-sync` |
-| `both` | HLTV scrape | GGScore cache | HLTV poll + manual GGScore sync |
+```
+Discord  ←→  Bot (discord.js)
+                │
+                ├── SQLite cache (matches, events, quota)
+                │
+                └── GGScore API  ← only /sync calls go here
+```
+
+Polling never hits the API. It compares cached upcoming matches against per-guild "seen" records and posts embeds for new matches or matches starting within the configured reminder window.
 
 ## Limitations
 
-- **GGScore public API** does not include live round/kill/player data — only schedules, results, countries
-- For live round-by-round data you need GGScore Pro (`api.esportsdata.cc`) or HLTV scorebot
-- Free tier: 3 requests/day — use `/ggscore-sync` deliberately
+- GGScore's public API provides schedules and results, not live round-by-round data
+- Free tier: 3 requests/day — plan your `/sync` usage accordingly
+- Event listings are derived from cached match data, not a dedicated events endpoint
 
 ## License
 

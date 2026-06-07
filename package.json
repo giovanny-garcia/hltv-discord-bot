@@ -1,7 +1,7 @@
 {
-  "name": "hltv-discord-bot",
+  "name": "cs2-discord-bot",
   "version": "1.0.0",
-  "description": "Discord bot that tracks and announces HLTV tournaments and matches",
+  "description": "Discord bot that announces CS2 matches using the GGScore API with smart caching",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -16,8 +16,7 @@
   "dependencies": {
     "better-sqlite3": "^11.9.1",
     "discord.js": "^14.19.0",
-    "dotenv": "^16.5.0",
-    "hltv": "^3.5.0"
+    "dotenv": "^16.5.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

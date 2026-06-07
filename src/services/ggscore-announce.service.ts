@@ -13,8 +13,8 @@ import {
   type NormalizedGgscoreMatch,
 } from "../utils/ggscore-match.util.js";
 import {
-  ggscoreMatchReminderEmbed,
-  newGgscoreMatchEmbed,
+  matchReminderEmbed,
+  newMatchEmbed,
 } from "../utils/ggscore-embeds.js";
 
 function matchKey(id: string): string {
@@ -59,7 +59,7 @@ export async function announceGgscoreForGuild(
     let announcedNew = false;
 
     if (!seen) {
-      const sent = await sendEmbed(client, channelId, newGgscoreMatchEmbed(match));
+      const sent = await sendEmbed(client, channelId, newMatchEmbed(match));
       if (sent) {
         markSeen(guildId, key, "match");
         announcedNew = true;
@@ -71,7 +71,7 @@ export async function announceGgscoreForGuild(
       isStartingSoon(match, settings.matchReminderMinutes) &&
       !getSeenItem(guildId, key)?.reminderSent
     ) {
-      const sent = await sendEmbed(client, channelId, ggscoreMatchReminderEmbed(match));
+      const sent = await sendEmbed(client, channelId, matchReminderEmbed(match));
       if (sent) markReminderSent(guildId, key, "match");
     }
   }

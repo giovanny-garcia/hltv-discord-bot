@@ -11,7 +11,7 @@ export interface NormalizedGgscoreMatch {
   playedAt?: number;
   online?: boolean;
   location?: string;
-  hltvUrl?: string;
+  matchLink?: string;
   stars: number;
   live: boolean;
 }
@@ -54,11 +54,11 @@ function eventName(match: GgscoreMatch): string | undefined {
 export function normalizeGgscoreMatch(match: GgscoreMatch): NormalizedGgscoreMatch {
   const team1 = readTeam(match, 0);
   const team2 = readTeam(match, 1);
-  const hltvUrl = match.hltv_link ?? match.hltv_url;
+  const externalLink = match.hltv_link ?? match.hltv_url;
   const id =
     match.id !== undefined
       ? String(match.id)
-      : hltvUrl ?? `${team1.name}-${team2.name}-${match.scheduled_at ?? match.played_at ?? "unknown"}`;
+      : externalLink ?? `${team1.name}-${team2.name}-${match.scheduled_at ?? match.played_at ?? "unknown"}`;
 
   const scheduledAt = parseDateMs(match.scheduled_at ?? match.date);
   const playedAt = parseDateMs(match.played_at ?? match.date);
@@ -74,7 +74,7 @@ export function normalizeGgscoreMatch(match: GgscoreMatch): NormalizedGgscoreMat
     playedAt,
     online: match.online,
     location: match.location,
-    hltvUrl: typeof hltvUrl === "string" ? hltvUrl : undefined,
+    matchLink: typeof externalLink === "string" ? externalLink : undefined,
     stars: 0,
     live: false,
   };
@@ -85,7 +85,7 @@ export function matchLabel(normalized: NormalizedGgscoreMatch): string {
 }
 
 export function matchUrl(normalized: NormalizedGgscoreMatch): string | undefined {
-  return normalized.hltvUrl;
+  return normalized.matchLink;
 }
 
 export function formatTimestamp(unixSeconds?: number): string {

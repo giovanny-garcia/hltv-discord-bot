@@ -1,41 +1,26 @@
 import type { BotCommand } from "../client.js";
+import { countriesCommand } from "./countries.js";
 import { eventsCommand } from "./events.js";
-import {
-  ggscoreCountriesCommand,
-  ggscoreEventsCommand,
-  ggscoreQuotaCommand,
-  ggscoreResultsCommand,
-  ggscoreSyncCommand,
-  ggscoreUpcomingCommand,
-} from "./ggscore.js";
 import { matchesCommand } from "./matches.js";
 import { pingCommand } from "./ping.js";
+import { quotaCommand } from "./quota.js";
+import { resultsCommand } from "./results.js";
 import {
   settingsCommand,
   subscribeCommand,
   unsubscribeCommand,
 } from "./subscribe.js";
+import { syncCommand } from "./sync.js";
 
-const baseCommands: BotCommand[] = [
+export const commands: BotCommand[] = [
   pingCommand,
   subscribeCommand,
   unsubscribeCommand,
   settingsCommand,
   eventsCommand,
   matchesCommand,
+  syncCommand,
+  quotaCommand,
+  resultsCommand,
+  countriesCommand,
 ];
-
-const ggscoreCommands: BotCommand[] = [
-  ggscoreSyncCommand,
-  ggscoreQuotaCommand,
-  ggscoreUpcomingCommand,
-  ggscoreResultsCommand,
-  ggscoreCountriesCommand,
-  ggscoreEventsCommand,
-];
-
-export function buildCommands(includeGgscore: boolean): BotCommand[] {
-  return includeGgscore ? [...baseCommands, ...ggscoreCommands] : baseCommands;
-}
-
-export const commands = baseCommands;

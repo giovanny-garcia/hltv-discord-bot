@@ -1,7 +1,7 @@
-import { loadConfig, usesGgscore } from "./config.js";
+import { loadConfig } from "./config.js";
 import { attachCommandHandler, createClient, registerCommands } from "./bot/client.js";
-import { buildCommands } from "./bot/commands/index.js";
-import { initGgscoreClient } from "./services/ggscore-context.js";
+import { commands } from "./bot/commands/index.js";
+import { getGgscoreClient, initGgscoreClient } from "./services/ggscore-context.js";
 import { syncGgscoreData } from "./services/ggscore-cache.service.js";
 import { PollService } from "./services/poll.service.js";
 import { closeDb, initDb } from "./storage/db.js";
@@ -9,14 +9,9 @@ import { closeDb, initDb } from "./storage/db.js";
 async function main(): Promise<void> {
   const config = loadConfig();
   initDb();
-
-  const includeGgscore = usesGgscore(config);
-  if (includeGgscore) {
-    initGgscoreClient(config);
-  }
+  initGgscoreClient(config);
 
   const client = createClient();
-  const commands = buildCommands(includeGgscore);
   attachCommandHandler(client, commands);
 
   await registerCommands(
@@ -31,19 +26,19 @@ async function main(): Promise<void> {
   client.once("ready", () => {
     pollService.start();
 
-    if (includeGgscore && config.ggscoreSyncOnStart) {
+    if (config.ggscoreSyncOnStart) {
       void syncGgscoreData(getGgscoreClient(), "full")
         .then((result) => {
           console.log(
-            `Startup GGScore sync: fetched ${result.fetched.join(", ")}, remaining ${result.requestsRemaining}`,
+            `Startup sync: fetched ${result.fetched.join(", ")}, remaining ${result.requestsRemaining}`,
           );
         })
         .catch((error) => {
-          console.warn("Startup GGScore sync skipped/failed:", error);
+          console.warn("Startup sync skipped/failed:", error);
         });
-    } else if (includeGgscore) {
+    } else {
       console.log(
-        "GGScore: no startup sync (GGSCORE_SYNC_ON_START=false). Run /ggscore-sync scope:full once to populate cache.",
+        "No startup sync (GGSCORE_SYNC_ON_START=false). Run /sync scope:full once to populate the cache.",
       );
     }
   });

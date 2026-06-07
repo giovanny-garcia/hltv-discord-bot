@@ -26,12 +26,12 @@ export function upcomingMatchesEmbed(
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(UPCOMING_COLOR)
-    .setTitle("Upcoming Matches (GGScore)")
+    .setTitle("Upcoming Matches")
     .setTimestamp(new Date());
 
   if (matches.length === 0) {
     embed.setDescription(
-      "No cached upcoming matches. Run `/ggscore-sync scope:upcoming` or `/ggscore-sync scope:full` first.",
+      "No cached upcoming matches. Run `/sync scope:upcoming` or `/sync scope:full` first.",
     );
     return embed;
   }
@@ -52,12 +52,12 @@ export function playedMatchesEmbed(
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(RESULTS_COLOR)
-    .setTitle("Recent Results (GGScore)")
+    .setTitle("Recent Results")
     .setTimestamp(new Date());
 
   if (matches.length === 0) {
     embed.setDescription(
-      "No cached results. Run `/ggscore-sync scope:results` or `/ggscore-sync scope:full` first.",
+      "No cached results. Run `/sync scope:results` or `/sync scope:full` first.",
     );
     return embed;
   }
@@ -74,11 +74,11 @@ export function playedMatchesEmbed(
 export function countriesEmbed(countries: GgscoreCountry[], cacheAge?: number): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(META_COLOR)
-    .setTitle("Countries (GGScore)")
+    .setTitle("Countries")
     .setTimestamp(new Date());
 
   if (countries.length === 0) {
-    embed.setDescription("No cached countries. Run `/ggscore-sync scope:countries` first.");
+    embed.setDescription("No cached countries. Run `/sync scope:countries` first.");
     return embed;
   }
 
@@ -116,7 +116,7 @@ export function quotaEmbed(quota: {
       { name: "Cached datasets", value: cacheLines, inline: false },
     )
     .setDescription(
-      "Free tier: 3 requests/day. Use `/ggscore-sync` deliberately — all bot commands read from cache, not the live API.",
+      "Free tier: 3 requests/day. Use `/sync` deliberately — all other commands read from cache.",
     )
     .setTimestamp(new Date());
 }
@@ -134,7 +134,7 @@ export function syncResultEmbed(result: GgscoreSyncResult): EmbedBuilder {
 
   return new EmbedBuilder()
     .setColor(result.errors.length > 0 ? 0xf39c12 : 0x2ecc71)
-    .setTitle(`GGScore Sync (${result.scope})`)
+    .setTitle(`Sync Complete (${result.scope})`)
     .addFields(
       { name: "Fetched", value: fetched, inline: false },
       { name: "Requests used", value: String(result.requestsUsed), inline: true },
@@ -144,11 +144,11 @@ export function syncResultEmbed(result: GgscoreSyncResult): EmbedBuilder {
     .setTimestamp(new Date());
 }
 
-export function newGgscoreMatchEmbed(match: NormalizedGgscoreMatch): EmbedBuilder {
+export function newMatchEmbed(match: NormalizedGgscoreMatch): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(UPCOMING_COLOR)
     .setTitle(`New Match: ${matchLabel(match)}`)
-    .setDescription("A new match appeared in GGScore data.")
+    .setDescription("A new upcoming match was added to the cache.")
     .addFields(
       { name: "Scheduled", value: formatTimestamp(match.scheduledAt), inline: true },
       { name: "Format", value: match.kind ?? "TBA", inline: true },
@@ -161,7 +161,7 @@ export function newGgscoreMatchEmbed(match: NormalizedGgscoreMatch): EmbedBuilde
   return embed;
 }
 
-export function ggscoreMatchReminderEmbed(match: NormalizedGgscoreMatch): EmbedBuilder {
+export function matchReminderEmbed(match: NormalizedGgscoreMatch): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0xf39c12)
     .setTitle(`Match Starting Soon: ${matchLabel(match)}`)
@@ -172,14 +172,14 @@ export function ggscoreMatchReminderEmbed(match: NormalizedGgscoreMatch): EmbedB
   return embed;
 }
 
-export function ggscoreEventsEmbed(events: string[]): EmbedBuilder {
+export function eventsEmbed(events: string[]): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0x2ecc71)
-    .setTitle("Events (from GGScore cache)")
+    .setTitle("Events")
     .setTimestamp(new Date());
 
   if (events.length === 0) {
-    embed.setDescription("No events in cache yet. Sync upcoming matches first.");
+    embed.setDescription("No events in cache yet. Run `/sync scope:full` to populate data.");
     return embed;
   }
 

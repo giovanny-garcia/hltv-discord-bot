@@ -1,5 +1,3 @@
-export type DataProvider = "hltv" | "ggscore" | "both";
-
 export interface GuildSettings {
   guildId: string;
   channelId: string;
@@ -26,8 +24,7 @@ export interface EnvConfig {
   discordClientId: string;
   discordGuildId?: string;
   pollIntervalMs: number;
-  dataProvider: DataProvider;
-  ggscoreApiKey?: string;
+  ggscoreApiKey: string;
   ggscoreBaseUrl: string;
   ggscoreDailyLimit: number;
   ggscoreSyncOnStart: boolean;

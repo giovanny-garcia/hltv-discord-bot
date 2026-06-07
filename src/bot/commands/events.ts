@@ -1,20 +1,20 @@
 import { SlashCommandBuilder } from "discord.js";
 import type { BotCommand } from "../client.js";
-import { fetchEvents } from "../../services/hltv.service.js";
-import { eventsListEmbed } from "../../utils/embeds.js";
+import {
+  getCachedPlayedMatches,
+  getCachedUpcomingMatches,
+} from "../../services/ggscore-cache.service.js";
+import { normalizeGgscoreMatch, uniqueEvents } from "../../utils/ggscore-match.util.js";
+import { eventsEmbed } from "../../utils/ggscore-embeds.js";
 
 export const eventsCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("events")
-    .setDescription("List upcoming HLTV tournaments"),
+    .setDescription("List tournaments and events from cache (no API call)"),
   async execute(interaction) {
-    await interaction.deferReply();
-    try {
-      const events = await fetchEvents();
-      await interaction.editReply({ embeds: [eventsListEmbed(events)] });
-    } catch (error) {
-      console.error("Failed to fetch events:", error);
-      await interaction.editReply("Failed to fetch events from HLTV. Try again later.");
-    }
+    const upcoming = getCachedUpcomingMatches().map(normalizeGgscoreMatch);
+    const played = getCachedPlayedMatches().map(normalizeGgscoreMatch);
+    const events = uniqueEvents([...upcoming, ...played]);
+    await interaction.reply({ embeds: [eventsEmbed(events)] });
   },
 };

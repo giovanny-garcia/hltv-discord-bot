@@ -3,12 +3,7 @@ import { GgscoreClient } from "./ggscore.service.js";
 
 let client: GgscoreClient | null = null;
 
-export function initGgscoreClient(config: EnvConfig): GgscoreClient | null {
-  if (!config.ggscoreApiKey) {
-    client = null;
-    return null;
-  }
-
+export function initGgscoreClient(config: EnvConfig): GgscoreClient {
   client = new GgscoreClient({
     apiKey: config.ggscoreApiKey,
     baseUrl: config.ggscoreBaseUrl,
@@ -21,9 +16,5 @@ export function getGgscoreClient(): GgscoreClient {
   if (!client) {
     throw new Error("GGScore client is not initialized. Set GGSCORE_API_KEY in .env.");
   }
-  return client;
-}
-
-export function maybeGetGgscoreClient(): GgscoreClient | null {
   return client;
 }
