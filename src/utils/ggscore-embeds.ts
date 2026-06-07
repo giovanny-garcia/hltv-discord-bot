@@ -186,3 +186,32 @@ export function eventsEmbed(events: string[]): EmbedBuilder {
   embed.setDescription(events.slice(0, 20).map((e) => `• ${e}`).join("\n"));
   return embed;
 }
+
+/** Obvious test payload for previewing announcement layout in Discord. */
+export function placeholderMatchAnnounceEmbed(): EmbedBuilder {
+  const scheduledAt = Math.floor(Date.now() / 1000) + 3600;
+
+  return new EmbedBuilder()
+    .setColor(0x9b59b6)
+    .setTitle("🧪 PLACEHOLDER — New Match: Team Alpha vs Team Beta")
+    .setDescription(
+      "**This is a test announcement.** Replace with real match data after `/sync`. Not a live match.",
+    )
+    .addFields(
+      { name: "Scheduled", value: formatTimestamp(scheduledAt), inline: true },
+      { name: "Format", value: "BO3 (placeholder)", inline: true },
+      { name: "Event", value: "Placeholder Invitational 2026", inline: false },
+      {
+        name: "Match ID",
+        value: "`test-match-0001`",
+        inline: true,
+      },
+      {
+        name: "Status",
+        value: "🟣 Demo / scaffold only",
+        inline: true,
+      },
+    )
+    .setFooter({ text: "TEST DATA — safe to ignore • sent via /test-announce" })
+    .setTimestamp(new Date());
+}
