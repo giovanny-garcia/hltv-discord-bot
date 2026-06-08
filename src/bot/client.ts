@@ -1,4 +1,5 @@
 import {
+  AutocompleteInteraction,
   ChatInputCommandInteraction,
   Client,
   Collection,
@@ -12,6 +13,7 @@ import type {
   SlashCommandOptionsOnlyBuilder,
   SlashCommandSubcommandsOnlyBuilder,
 } from "discord.js";
+import { handleBettingButton, handleBettingModal } from "./handlers/betting.handler.js";
 import { handleMatchBoardButton } from "./handlers/match-board.handler.js";
 
 export interface BotCommand {
@@ -21,6 +23,7 @@ export interface BotCommand {
     | SlashCommandSubcommandsOnlyBuilder
     | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">;
   execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
+  autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
 }
 
 export function createClient(): Client {
@@ -58,13 +61,44 @@ export function attachCommandHandler(client: Client, commands: BotCommand[]): vo
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
+    if (interaction.isAutocomplete()) {
+      const command = commandMap.get(interaction.commandName);
+      if (command?.autocomplete) {
+        try {
+          await command.autocomplete(interaction);
+        } catch (error) {
+          console.error(`Autocomplete /${interaction.commandName} failed:`, error);
+        }
+      }
+      return;
+    }
+
     if (interaction.isButton()) {
       try {
+        const handledBet = await handleBettingButton(interaction);
+        if (handledBet) return;
+
         const handled = await handleMatchBoardButton(interaction);
         if (handled) return;
       } catch (error) {
         console.error("Button interaction failed:", error);
         const message = "Something went wrong handling that button.";
+        if (interaction.replied || interaction.deferred) {
+          await interaction.followUp({ content: message, ephemeral: true });
+        } else {
+          await interaction.reply({ content: message, ephemeral: true });
+        }
+      }
+      return;
+    }
+
+    if (interaction.isModalSubmit()) {
+      try {
+        const handled = await handleBettingModal(interaction);
+        if (handled) return;
+      } catch (error) {
+        console.error("Modal interaction failed:", error);
+        const message = "Something went wrong handling that form.";
         if (interaction.replied || interaction.deferred) {
           await interaction.followUp({ content: message, ephemeral: true });
         } else {

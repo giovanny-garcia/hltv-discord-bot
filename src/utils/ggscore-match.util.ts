@@ -1,10 +1,11 @@
-import type { GgscoreMatch } from "../types/ggscore.js";
+import type { GgscoreMatch, GgscoreTeamSide } from "../types/ggscore.js";
 
 export interface NormalizedGgscoreMatch {
   id: string;
   team1Name: string;
   team2Name: string;
   scoreLabel: string;
+  eventId?: string;
   eventName?: string;
   kind?: string;
   scheduledAt?: number;
@@ -16,19 +17,35 @@ export interface NormalizedGgscoreMatch {
   live: boolean;
 }
 
+function teamLabel(team: GgscoreTeamSide | undefined): string | undefined {
+  if (!team) return undefined;
+  const label = team.name ?? team.title;
+  return label?.trim() || undefined;
+}
+
 function readTeam(match: GgscoreMatch, index: 0 | 1): { name: string; score?: number | string } {
   if (match.team1 && match.team2) {
     const team = index === 0 ? match.team1 : match.team2;
-    return { name: team.name, score: team.score };
+    return { name: teamLabel(team) ?? "TBD", score: team.score };
+  }
+
+  if (match.team_won && match.team_lose) {
+    const team = index === 0 ? match.team_won : match.team_lose;
+    const score = index === 0 ? match.score_won : match.score_lose;
+    return { name: teamLabel(team) ?? "TBD", score };
   }
 
   if (match.teams?.[index]) {
     const team = match.teams[index];
-    return { name: team.name, score: team.score };
+    return { name: teamLabel(team) ?? "TBD", score: team.score };
   }
 
-  if (index === 0 && match.winner) return { name: match.winner.name, score: match.winner.score };
-  if (index === 1 && match.loser) return { name: match.loser.name, score: match.loser.score };
+  if (index === 0 && match.winner) {
+    return { name: teamLabel(match.winner) ?? "TBD", score: match.winner.score };
+  }
+  if (index === 1 && match.loser) {
+    return { name: teamLabel(match.loser) ?? "TBD", score: match.loser.score };
+  }
 
   return { name: "TBD" };
 }
@@ -36,6 +53,9 @@ function readTeam(match: GgscoreMatch, index: 0 | 1): { name: string; score?: nu
 function parseScoreLabel(match: GgscoreMatch, team1Score?: number | string, team2Score?: number | string): string {
   if (typeof match.score === "string" && match.score.trim()) return match.score;
   if (team1Score !== undefined && team2Score !== undefined) return `${team1Score}:${team2Score}`;
+  if (match.score_won !== undefined && match.score_lose !== undefined) {
+    return `${match.score_won}:${match.score_lose}`;
+  }
   return "vs";
 }
 
@@ -45,10 +65,21 @@ function parseDateMs(value?: string): number | undefined {
   return Number.isNaN(ms) ? undefined : Math.floor(ms / 1000);
 }
 
-function eventName(match: GgscoreMatch): string | undefined {
-  if (!match.event) return undefined;
-  if (typeof match.event === "string") return match.event;
-  return match.event.title ?? match.event.name;
+function matchKind(match: GgscoreMatch): string | undefined {
+  if (typeof match.kind === "string" && match.kind.trim()) return match.kind;
+  if (typeof match.match_kind === "string" && match.match_kind.trim()) return match.match_kind;
+  if (match.match_kind && typeof match.match_kind === "object") {
+    return match.match_kind.title ?? match.match_kind.name;
+  }
+  return undefined;
+}
+
+function eventInfo(match: GgscoreMatch): { id?: string; name?: string } {
+  if (!match.event) return {};
+  if (typeof match.event === "string") return { name: match.event, id: match.event };
+  const id = match.event.id !== undefined ? String(match.event.id) : undefined;
+  const name = match.event.title ?? match.event.name;
+  return { id: id ?? name, name };
 }
 
 export function normalizeGgscoreMatch(match: GgscoreMatch): NormalizedGgscoreMatch {
@@ -60,22 +91,24 @@ export function normalizeGgscoreMatch(match: GgscoreMatch): NormalizedGgscoreMat
       ? String(match.id)
       : externalLink ?? `${team1.name}-${team2.name}-${match.scheduled_at ?? match.played_at ?? "unknown"}`;
 
-  const scheduledAt = parseDateMs(match.scheduled_at ?? match.date);
-  const playedAt = parseDateMs(match.played_at ?? match.date);
+  const scheduledAt = parseDateMs(match.scheduled_at ?? match.play_at ?? match.date);
+  const playedAt = parseDateMs(match.played_at ?? match.play_at ?? match.date);
+  const event = eventInfo(match);
 
   return {
     id,
     team1Name: team1.name,
     team2Name: team2.name,
     scoreLabel: parseScoreLabel(match, team1.score, team2.score),
-    eventName: eventName(match),
-    kind: match.kind,
+    eventId: event.id,
+    eventName: event.name,
+    kind: matchKind(match),
     scheduledAt,
     playedAt,
     online: match.online,
     location: match.location,
     matchLink: typeof externalLink === "string" ? externalLink : undefined,
-    stars: 0,
+    stars: typeof match.stars === "number" ? match.stars : 0,
     live: false,
   };
 }

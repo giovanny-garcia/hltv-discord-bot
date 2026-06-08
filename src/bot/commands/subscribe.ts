@@ -4,7 +4,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import type { BotCommand } from "../client.js";
-import { getGuildSettings, removeGuildSettings, updateGuildSettings, upsertGuildSettings } from "../../storage/db.js";
+import { getGuildSettings, removeGuildSettings, updateGuildSettings, upsertGuildSettings, getTrackedEvents } from "../../storage/db.js";
 import { settingsEmbed } from "../../utils/embeds.js";
 
 export const subscribeCommand: BotCommand = {
@@ -28,7 +28,7 @@ export const subscribeCommand: BotCommand = {
 
     upsertGuildSettings(interaction.guildId, channel.id);
     await interaction.reply({
-      content: `Subscribed to match announcements in ${channel}. Use \`/settings\` to configure reminders.`,
+      content: `Subscribed to match announcements in ${channel}. Track events with \`/events track\` — nothing is announced until you pick tournaments.`,
     });
   },
 };
@@ -90,7 +90,15 @@ export const settingsCommand: BotCommand = {
     const hasUpdates = matches !== null || matchReminder !== null;
 
     if (!hasUpdates) {
-      await interaction.reply({ embeds: [settingsEmbed(existing)], ephemeral: true });
+      await interaction.reply({
+        embeds: [
+          settingsEmbed({
+            ...existing,
+            trackedEventCount: getTrackedEvents(interaction.guildId).length,
+          }),
+        ],
+        ephemeral: true,
+      });
       return;
     }
 
@@ -107,6 +115,13 @@ export const settingsCommand: BotCommand = {
       return;
     }
 
-    await interaction.reply({ embeds: [settingsEmbed(updated)] });
+    await interaction.reply({
+      embeds: [
+        settingsEmbed({
+          ...updated,
+          trackedEventCount: getTrackedEvents(interaction.guildId).length,
+        }),
+      ],
+    });
   },
 };

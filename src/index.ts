@@ -1,3 +1,4 @@
+import { Events } from "discord.js";
 import { loadConfig } from "./config.js";
 import { attachCommandHandler, createClient, registerCommands } from "./bot/client.js";
 import { commands } from "./bot/commands/index.js";
@@ -23,7 +24,7 @@ async function main(): Promise<void> {
 
   const pollService = new PollService(client, config);
 
-  client.once("ready", () => {
+  client.once(Events.ClientReady, () => {
     pollService.start();
 
     if (config.ggscoreSyncOnStart) {

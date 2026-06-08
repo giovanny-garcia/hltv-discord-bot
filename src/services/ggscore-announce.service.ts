@@ -3,9 +3,11 @@ import type { GuildSettings } from "../types/index.js";
 import {
   getAllGuildSettings,
   getSeenItem,
+  getTrackedEvents,
   markReminderSent,
   markSeen,
 } from "../storage/db.js";
+import { filterTrackedMatches } from "../utils/event-cache.util.js";
 import { getCachedUpcomingMatches } from "./ggscore-cache.service.js";
 import {
   isStartingSoon,
@@ -48,33 +50,40 @@ export async function announceGgscoreForGuild(
   client: Client,
   settings: GuildSettings,
   matches: NormalizedGgscoreMatch[],
-): Promise<void> {
-  if (!settings.announceMatches) return;
+): Promise<number> {
+  if (!settings.announceMatches) return 0;
 
+  const tracked = getTrackedEvents(settings.guildId);
+  const eligible = filterTrackedMatches(matches, tracked);
   const { guildId, channelId } = settings;
+  let announced = 0;
 
-  for (const match of matches) {
+  for (const match of eligible) {
     const key = matchKey(match.id);
     const seen = getSeenItem(guildId, key);
-    let announcedNew = false;
 
     if (!seen) {
       const sent = await sendEmbed(client, channelId, newMatchEmbed(match));
       if (sent) {
         markSeen(guildId, key, "match");
-        announcedNew = true;
+        announced++;
       }
+      continue;
     }
 
     if (
-      !announcedNew &&
       isStartingSoon(match, settings.matchReminderMinutes) &&
       !getSeenItem(guildId, key)?.reminderSent
     ) {
       const sent = await sendEmbed(client, channelId, matchReminderEmbed(match));
-      if (sent) markReminderSent(guildId, key, "match");
+      if (sent) {
+        markReminderSent(guildId, key, "match");
+        announced++;
+      }
     }
   }
+
+  return announced;
 }
 
 export async function announceGgscoreAllGuilds(client: Client): Promise<number> {
@@ -82,9 +91,10 @@ export async function announceGgscoreAllGuilds(client: Client): Promise<number> 
   const matches = raw.map(normalizeGgscoreMatch).filter((m) => m.scheduledAt);
   const guilds = getAllGuildSettings();
 
+  let totalAnnounced = 0;
   for (const settings of guilds) {
-    await announceGgscoreForGuild(client, settings, matches);
+    totalAnnounced += await announceGgscoreForGuild(client, settings, matches);
   }
 
-  return matches.length;
+  return totalAnnounced;
 }

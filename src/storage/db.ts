@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { GuildSettings, SeenItem, SeenItemKind } from "../types/index.js";
+import type { GuildSettings, SeenItem, SeenItemKind, TrackedEvent } from "../types/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbPath = join(__dirname, "../../data/bot.db");
@@ -13,6 +13,7 @@ function rowToSettings(row: Record<string, unknown>): GuildSettings {
   return {
     guildId: String(row.guild_id),
     channelId: String(row.channel_id),
+    bettingChannelId: row.betting_channel_id ? String(row.betting_channel_id) : undefined,
     announceTournaments: Boolean(row.announce_tournaments),
     announceMatches: Boolean(row.announce_matches),
     minMatchStars: Number(row.min_match_stars),
@@ -59,7 +60,68 @@ export function initDb(): void {
       usage_date TEXT PRIMARY KEY,
       request_count INTEGER NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS user_balances (
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      balance INTEGER NOT NULL,
+      total_won INTEGER NOT NULL DEFAULT 0,
+      total_lost INTEGER NOT NULL DEFAULT 0,
+      bets_won INTEGER NOT NULL DEFAULT 0,
+      bets_lost INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (guild_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS bet_markets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guild_id TEXT NOT NULL,
+      match_id TEXT NOT NULL,
+      team1_name TEXT NOT NULL,
+      team2_name TEXT NOT NULL,
+      event_name TEXT,
+      format TEXT,
+      status TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      winner_side INTEGER,
+      created_at INTEGER NOT NULL,
+      locked_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS user_bets (
+      market_id INTEGER NOT NULL,
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      side INTEGER NOT NULL,
+      amount INTEGER NOT NULL,
+      payout INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (market_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS guild_tracked_events (
+      guild_id TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      added_at INTEGER NOT NULL,
+      PRIMARY KEY (guild_id, event_id)
+    );
   `);
+
+  migrateGuildSettingsColumns();
+}
+
+function migrateGuildSettingsColumns(): void {
+  const columns = db.prepare("PRAGMA table_info(guild_settings)").all() as { name: string }[];
+  if (!columns.some((col) => col.name === "betting_channel_id")) {
+    db.exec("ALTER TABLE guild_settings ADD COLUMN betting_channel_id TEXT");
+  }
+}
+
+export function getDb(): Database.Database {
+  return db;
 }
 
 export function closeDb(): void {
@@ -69,13 +131,16 @@ export function closeDb(): void {
 export function upsertGuildSettings(
   guildId: string,
   channelId: string,
-  partial?: Partial<Omit<GuildSettings, "guildId" | "channelId">>,
+  partial?: Partial<Omit<GuildSettings, "guildId" | "channelId">> & {
+    bettingChannelId?: string;
+  },
 ): GuildSettings {
   const existing = getGuildSettings(guildId);
 
   const settings: GuildSettings = {
     guildId,
     channelId,
+    bettingChannelId: partial?.bettingChannelId ?? existing?.bettingChannelId,
     announceTournaments: partial?.announceTournaments ?? existing?.announceTournaments ?? true,
     announceMatches: partial?.announceMatches ?? existing?.announceMatches ?? true,
     minMatchStars: partial?.minMatchStars ?? existing?.minMatchStars ?? 0,
@@ -87,14 +152,15 @@ export function upsertGuildSettings(
 
   db.prepare(`
     INSERT INTO guild_settings (
-      guild_id, channel_id, announce_tournaments, announce_matches,
+      guild_id, channel_id, betting_channel_id, announce_tournaments, announce_matches,
       min_match_stars, featured_only, match_reminder_minutes, tournament_reminder_hours
     ) VALUES (
-      @guildId, @channelId, @announceTournaments, @announceMatches,
+      @guildId, @channelId, @bettingChannelId, @announceTournaments, @announceMatches,
       @minMatchStars, @featuredOnly, @matchReminderMinutes, @tournamentReminderHours
     )
     ON CONFLICT(guild_id) DO UPDATE SET
       channel_id = excluded.channel_id,
+      betting_channel_id = COALESCE(excluded.betting_channel_id, guild_settings.betting_channel_id),
       announce_tournaments = excluded.announce_tournaments,
       announce_matches = excluded.announce_matches,
       min_match_stars = excluded.min_match_stars,
@@ -104,6 +170,7 @@ export function upsertGuildSettings(
   `).run({
     guildId: settings.guildId,
     channelId: settings.channelId,
+    bettingChannelId: settings.bettingChannelId ?? null,
     announceTournaments: settings.announceTournaments ? 1 : 0,
     announceMatches: settings.announceMatches ? 1 : 0,
     minMatchStars: settings.minMatchStars,
@@ -123,6 +190,7 @@ export function updateGuildSettings(
   if (!existing) return null;
 
   return upsertGuildSettings(guildId, partial.channelId ?? existing.channelId, {
+    bettingChannelId: partial.bettingChannelId ?? existing.bettingChannelId,
     announceTournaments: partial.announceTournaments ?? existing.announceTournaments,
     announceMatches: partial.announceMatches ?? existing.announceMatches,
     minMatchStars: partial.minMatchStars ?? existing.minMatchStars,
@@ -246,4 +314,48 @@ export function getGgscoreCacheMeta(): { key: string; fetchedAt: number }[] {
     .all() as { cache_key: string; fetched_at: number }[];
 
   return rows.map((row) => ({ key: row.cache_key, fetchedAt: row.fetched_at }));
+}
+
+export function getTrackedEvents(guildId: string): TrackedEvent[] {
+  const rows = db
+    .prepare(
+      "SELECT * FROM guild_tracked_events WHERE guild_id = ? ORDER BY event_name COLLATE NOCASE",
+    )
+    .all(guildId) as Record<string, unknown>[];
+
+  return rows.map((row) => ({
+    guildId: String(row.guild_id),
+    eventId: String(row.event_id),
+    eventName: String(row.event_name),
+    addedAt: Number(row.added_at),
+  }));
+}
+
+export function addTrackedEvent(
+  guildId: string,
+  eventId: string,
+  eventName: string,
+): TrackedEvent {
+  const addedAt = Date.now();
+  db.prepare(`
+    INSERT INTO guild_tracked_events (guild_id, event_id, event_name, added_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(guild_id, event_id) DO UPDATE SET event_name = excluded.event_name
+  `).run(guildId, eventId, eventName, addedAt);
+
+  return { guildId, eventId, eventName, addedAt };
+}
+
+export function removeTrackedEvent(guildId: string, eventId: string): boolean {
+  const result = db
+    .prepare("DELETE FROM guild_tracked_events WHERE guild_id = ? AND event_id = ?")
+    .run(guildId, eventId);
+  return result.changes > 0;
+}
+
+export function clearTrackedEvents(guildId: string): number {
+  const result = db
+    .prepare("DELETE FROM guild_tracked_events WHERE guild_id = ?")
+    .run(guildId);
+  return result.changes;
 }

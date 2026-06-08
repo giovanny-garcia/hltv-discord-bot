@@ -1,6 +1,7 @@
 export interface GuildSettings {
   guildId: string;
   channelId: string;
+  bettingChannelId?: string;
   announceTournaments: boolean;
   announceMatches: boolean;
   minMatchStars: number;
@@ -10,6 +11,13 @@ export interface GuildSettings {
 }
 
 export type SeenItemKind = "event" | "match";
+
+export interface TrackedEvent {
+  guildId: string;
+  eventId: string;
+  eventName: string;
+  addedAt: number;
+}
 
 export interface SeenItem {
   id: string;
