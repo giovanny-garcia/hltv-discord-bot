@@ -63,3 +63,25 @@ export function filterTrackedMatches(
 ): NormalizedGgscoreMatch[] {
   return matches.filter((match) => matchIsTracked(match, tracked));
 }
+
+export function matchBelongsToEvent(
+  match: NormalizedGgscoreMatch,
+  eventId: string,
+  eventName?: string,
+): boolean {
+  if (match.eventId && match.eventId === eventId) return true;
+  if (eventName && match.eventName?.toLowerCase() === eventName.toLowerCase()) return true;
+  if (match.eventName && match.eventName === eventId) return true;
+  return false;
+}
+
+export function getUpcomingMatchesForEvent(eventId: string): NormalizedGgscoreMatch[] {
+  const cached = findCachedEvent(eventId);
+  return getCachedUpcomingMatches()
+    .map(normalizeGgscoreMatch)
+    .filter(
+      (match) =>
+        match.scheduledAt &&
+        matchBelongsToEvent(match, eventId, cached?.name),
+    );
+}

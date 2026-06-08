@@ -11,6 +11,7 @@ import {
   getTrackedEvents,
   removeTrackedEvent,
 } from "../../storage/db.js";
+import { manualAnnounceEventForGuild } from "../../services/ggscore-announce.service.js";
 import {
   cachedEventsEmbed,
   trackedEventsEmbed,
@@ -70,6 +71,28 @@ export const eventsCommand: BotCommand = {
             .setDescription("Event to remove")
             .setRequired(true)
             .setAutocomplete(true),
+        ),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("announce")
+        .setDescription("Post upcoming matches for an event right now")
+        .addStringOption((option) =>
+          option
+            .setName("event")
+            .setDescription("Event to announce")
+            .setRequired(true)
+            .setAutocomplete(true),
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("also_track")
+            .setDescription("Also add this event to auto-announcements (default true)"),
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("force")
+            .setDescription("Re-post even if already announced (use after deleting messages)"),
         ),
     )
     .addSubcommand((sub) =>
@@ -133,7 +156,7 @@ export const eventsCommand: BotCommand = {
       return;
     }
 
-    if (sub === "track" || sub === "untrack") {
+    if (sub === "track" || sub === "untrack" || sub === "announce") {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
         await interaction.reply({
           content: "You need Manage Server to change tracked events.",
@@ -162,10 +185,54 @@ export const eventsCommand: BotCommand = {
         return;
       }
 
+      if (sub === "announce") {
+        await interaction.deferReply({ ephemeral: true });
+
+        const alsoTrack = interaction.options.getBoolean("also_track") ?? true;
+        const force = interaction.options.getBoolean("force") ?? false;
+        if (alsoTrack) {
+          addTrackedEvent(interaction.guildId, cached.id, cached.name);
+        }
+
+        const result = await manualAnnounceEventForGuild(
+          interaction.client,
+          interaction.guildId,
+          cached.id,
+          { force },
+        );
+
+        if (result.total === 0) {
+          await interaction.editReply(`No upcoming matches in cache for **${cached.name}**.`);
+          return;
+        }
+
+        const parts: string[] = [];
+        if (result.sent > 0) {
+          parts.push(
+            `Posted **${result.sent}** match${result.sent === 1 ? "" : "es"} for **${cached.name}** in <#${settings.channelId}>.`,
+          );
+        } else {
+          parts.push(`No new posts for **${cached.name}**.`);
+        }
+        if (result.skipped > 0) {
+          parts.push(
+            `${result.skipped} skipped (already announced). Use \`force:true\` to re-post after deleting messages.`,
+          );
+        }
+        if (alsoTrack) {
+          parts.push("Event is tracked for future auto-announcements.");
+        }
+        await interaction.editReply(parts.join("\n"));
+        return;
+      }
+
       if (sub === "track") {
         addTrackedEvent(interaction.guildId, cached.id, cached.name);
         await interaction.reply({
-          content: `Now announcing **${cached.name}**${cached.upcomingCount > 0 ? ` (${cached.upcomingCount} upcoming match${cached.upcomingCount === 1 ? "" : "es"})` : ""}.`,
+          content: [
+            `Now tracking **${cached.name}**${cached.upcomingCount > 0 ? ` (${cached.upcomingCount} upcoming match${cached.upcomingCount === 1 ? "" : "es"})` : ""}.`,
+            "New matches auto-post on the poll cycle, or run `/events announce` to post immediately.",
+          ].join("\n"),
         });
         return;
       }

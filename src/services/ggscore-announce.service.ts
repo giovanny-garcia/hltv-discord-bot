@@ -2,12 +2,13 @@ import type { Client, EmbedBuilder, TextChannel } from "discord.js";
 import type { GuildSettings } from "../types/index.js";
 import {
   getAllGuildSettings,
+  getGuildSettings,
   getSeenItem,
   getTrackedEvents,
   markReminderSent,
   markSeen,
 } from "../storage/db.js";
-import { filterTrackedMatches } from "../utils/event-cache.util.js";
+import { getUpcomingMatchesForEvent, filterTrackedMatches } from "../utils/event-cache.util.js";
 import { getCachedUpcomingMatches } from "./ggscore-cache.service.js";
 import {
   isStartingSoon,
@@ -97,4 +98,36 @@ export async function announceGgscoreAllGuilds(client: Client): Promise<number> 
   }
 
   return totalAnnounced;
+}
+
+export async function manualAnnounceEventForGuild(
+  client: Client,
+  guildId: string,
+  eventId: string,
+  options?: { force?: boolean },
+): Promise<{ sent: number; skipped: number; total: number }> {
+  const settings = getGuildSettings(guildId);
+  if (!settings) {
+    throw new Error("Run `/setup` or `/subscribe` first to configure an announcement channel.");
+  }
+
+  const matches = getUpcomingMatchesForEvent(eventId);
+  let sent = 0;
+  let skipped = 0;
+
+  for (const match of matches) {
+    const key = matchKey(match.id);
+    if (!options?.force && getSeenItem(guildId, key)) {
+      skipped++;
+      continue;
+    }
+
+    const ok = await sendEmbed(client, settings.channelId, newMatchEmbed(match));
+    if (ok) {
+      markSeen(guildId, key, "match");
+      sent++;
+    }
+  }
+
+  return { sent, skipped, total: matches.length };
 }
