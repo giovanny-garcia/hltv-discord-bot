@@ -9,6 +9,7 @@ import {
   markSeen,
 } from "../storage/db.js";
 import { getUpcomingMatchesForEvent, filterTrackedMatches } from "../utils/event-cache.util.js";
+import { getLifecycleSession } from "../storage/lifecycle-storage.js";
 import { getCachedUpcomingMatches } from "./ggscore-cache.service.js";
 import {
   isStartingSoon,
@@ -60,6 +61,7 @@ export async function announceGgscoreForGuild(
   let announced = 0;
 
   for (const match of eligible) {
+    if (getLifecycleSession(guildId, match.id)) continue;
     const key = matchKey(match.id);
     const seen = getSeenItem(guildId, key);
 

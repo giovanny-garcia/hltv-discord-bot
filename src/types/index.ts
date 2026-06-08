@@ -8,6 +8,8 @@ export interface GuildSettings {
   featuredOnly: boolean;
   matchReminderMinutes: number;
   tournamentReminderHours: number;
+  bettingOpenMinutes: number;
+  bettingLockMinutesAfterStart: number;
 }
 
 export type SeenItemKind = "event" | "match";
@@ -36,4 +38,5 @@ export interface EnvConfig {
   ggscoreBaseUrl: string;
   ggscoreDailyLimit: number;
   ggscoreSyncOnStart: boolean;
+  lifecycleIntervalMs: number;
 }

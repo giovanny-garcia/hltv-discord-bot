@@ -12,6 +12,7 @@ import {
   createMarket,
   getMarket,
   getMarketBets,
+  getMarketByGuildAndMatch,
   getMarketPool,
   getOpenMarket,
   getOrCreateBalance,
@@ -77,26 +78,32 @@ export async function openMarketForGuild(
   channel: GuildTextBasedChannel,
   matchIndex = 0,
 ): Promise<{ marketId: number; messageUrl: string }> {
+  const upcoming = getCachedUpcomingMatches().map(normalizeGgscoreMatch);
+  const match = upcoming[matchIndex];
+  if (!match) {
+    throw new Error(`Invalid match index. Cache has ${upcoming.length} upcoming matches (0-${upcoming.length - 1}).`);
+  }
+  return openMarketForMatch(guildId, channel, match);
+}
+
+export async function openMarketForMatch(
+  guildId: string,
+  channel: GuildTextBasedChannel,
+  match: ReturnType<typeof normalizeGgscoreMatch>,
+): Promise<{ marketId: number; messageUrl: string }> {
   const existing = getOpenMarket(guildId);
   if (existing) {
+    if (existing.matchId === match.id) {
+      return { marketId: existing.id, messageUrl: `https://discord.com/channels/${guildId}/${existing.channelId}/${existing.messageId}` };
+    }
     throw new Error(
       `Market #${existing.id} is already open (${existing.team1Name} vs ${existing.team2Name}). Lock or settle it first.`,
     );
   }
 
-  const upcoming = getCachedUpcomingMatches().map(normalizeGgscoreMatch);
-  if (upcoming.length === 0) {
-    throw new Error("No cached matches. Run `/sync scope:full` first.");
-  }
-
-  const match = upcoming[matchIndex];
-  if (!match) {
-    throw new Error(`Invalid match index. Cache has ${upcoming.length} upcoming matches (0-${upcoming.length - 1}).`);
-  }
-
   if (!match.team1Name || match.team1Name === "TBD" || !match.team2Name || match.team2Name === "TBD") {
     throw new Error(
-      `Match #${matchIndex} is missing team names in cache. Try \`/sync scope:full\` again or pick another match.`,
+      `Match is missing team names in cache. Try \`/sync scope:full\` again or pick another match.`,
     );
   }
 
@@ -204,6 +211,58 @@ export async function lockMarketForGuild(guildId: string, client: Client): Promi
 
   await refreshMarketMessageWithClient(locked.id, client);
   return locked;
+}
+
+export async function lockMarketForMatch(
+  guildId: string,
+  matchId: string,
+  client: Client,
+): Promise<BetMarket | null> {
+  const market = getOpenMarket(guildId);
+  if (!market || market.matchId !== matchId) return null;
+  return lockMarketForGuild(guildId, client);
+}
+
+export async function settleMarketForMatch(
+  guildId: string,
+  matchId: string,
+  winnerSide: BetSide,
+  client: Client,
+): Promise<{ marketId: number; winnersPaid: number; totalPaid: number } | null> {
+  const market = getOpenMarket(guildId) ?? getMarketByGuildAndMatch(guildId, matchId);
+  if (!market || market.matchId !== matchId) return null;
+  if (market.status === "settled") return null;
+
+  if (market.status === "open") {
+    lockMarket(market.id);
+  }
+
+  const activeMarket = getMarket(market.id)!;
+  const bets = getMarketBets(activeMarket.id);
+  const pool = getMarketPool(activeMarket.id);
+  const winningPool = winnerSide === 1 ? pool.team1Pool : pool.team2Pool;
+
+  let winnersPaid = 0;
+  let totalPaid = 0;
+
+  for (const bet of bets) {
+    if (bet.side === winnerSide) {
+      const payout =
+        winningPool > 0 ? Math.floor((bet.amount / winningPool) * pool.totalPool) : bet.amount;
+      recordBetWin(guildId, bet.userId, payout);
+      markBetResult(activeMarket.id, bet.userId, "won", payout);
+      winnersPaid++;
+      totalPaid += payout;
+    } else {
+      recordBetLoss(guildId, bet.userId, bet.amount);
+      markBetResult(activeMarket.id, bet.userId, "lost", 0);
+    }
+  }
+
+  settleMarket(activeMarket.id, winnerSide);
+  await refreshMarketMessageWithClient(activeMarket.id, client);
+
+  return { marketId: activeMarket.id, winnersPaid, totalPaid };
 }
 
 function getLatestLockedMarket(guildId: string): BetMarket | null {

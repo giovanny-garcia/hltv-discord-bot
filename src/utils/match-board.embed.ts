@@ -19,7 +19,7 @@ export interface MatchBoardData {
   team2: MatchBoardTeam;
   eventName: string;
   format: string;
-  phase: "upcoming" | "live" | "finished";
+  phase: "upcoming" | "live" | "between_maps" | "finished";
   live: boolean;
   currentMap?: number;
   hideSpoilers: boolean;
@@ -98,7 +98,7 @@ function buildUpcomingEmbed(data: MatchBoardData): EmbedBuilder {
       },
       {
         name: ZERO_WIDTH,
-        value: "💬 Betting open — wagers lock before match start",
+        value: "💬 Wagers open — locks a few minutes after match start",
         inline: false,
       },
     )
@@ -170,7 +170,62 @@ function buildLiveEmbed(data: MatchBoardData): EmbedBuilder {
   return embed;
 }
 
+function buildBetweenMapsEmbed(data: MatchBoardData): EmbedBuilder {
+  const badge1 = colorBadge(data.team1.color);
+  const badge2 = colorBadge(data.team2.color);
+  const hidden = data.hideSpoilers;
+  const mapLabel = data.currentMap ? `Map ${data.currentMap}` : "Map";
+
+  const embed = new EmbedBuilder()
+    .setColor(0xf39c12)
+    .setTitle(`${data.team1.name} vs ${data.team2.name}`)
+    .setDescription(
+      [
+        `🏆 **${data.eventName}**`,
+        `**${mapLabel} complete** · **${data.format}**`,
+        hidden
+          ? "*Series score hidden — tap **Show spoilers** when you're ready*"
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    )
+    .addFields(
+      {
+        name: `${badge1} ${data.team1.name}`,
+        value: spoiler(`Series **${data.team1.seriesScore}**`, hidden),
+        inline: true,
+      },
+      { name: ZERO_WIDTH, value: "**BREAK**", inline: true },
+      {
+        name: `${data.team2.name} ${badge2}`,
+        value: spoiler(`Series **${data.team2.seriesScore}**`, hidden),
+        inline: true,
+      },
+    )
+    .setTimestamp(new Date());
+
+  return embed;
+}
+
 function buildFinishedEmbed(data: MatchBoardData): EmbedBuilder {
+  if (data.hideSpoilers) {
+    const embed = new EmbedBuilder()
+      .setColor(FINISHED_COLOR)
+      .setTitle(`${data.team1.name} vs ${data.team2.name}`)
+      .setDescription(
+        [
+          `🏆 **${data.eventName}**`,
+          `**${data.format}** · Match complete`,
+          "",
+          "Results are hidden to avoid spoilers.",
+          "Tap **Show spoilers** below when you're ready.",
+        ].join("\n"),
+      )
+      .setTimestamp(new Date());
+    return embed;
+  }
+
   const badge1 = colorBadge(data.team1.color);
   const badge2 = colorBadge(data.team2.color);
   const team1Won = data.winnerSide === 1;
@@ -219,6 +274,8 @@ export function buildMatchBoardEmbed(data: MatchBoardData): EmbedBuilder {
       return buildUpcomingEmbed(data);
     case "live":
       return buildLiveEmbed(data);
+    case "between_maps":
+      return buildBetweenMapsEmbed(data);
     case "finished":
       return buildFinishedEmbed(data);
   }
@@ -227,6 +284,9 @@ export function buildMatchBoardEmbed(data: MatchBoardData): EmbedBuilder {
 export function matchBoardHeader(data: MatchBoardData): string | undefined {
   if (data.phase === "live" || data.live) {
     return data.placeholder ? "🔴 **LIVE** · `placeholder`" : "🔴 **LIVE**";
+  }
+  if (data.phase === "between_maps") {
+    return "⏸️ **Map break**";
   }
   if (data.phase === "upcoming") {
     return undefined;
@@ -257,7 +317,8 @@ export function testMatchToBoard(input: TestMatchInput): MatchBoardData {
 export function buildMatchBoardComponents(
   data: MatchBoardData,
 ): ActionRowBuilder<ButtonBuilder>[] {
-  if (data.phase !== "live" || !data.hideSpoilers) return [];
+  const spoilerPhases = data.phase === "live" || data.phase === "between_maps" || data.phase === "finished";
+  if (!spoilerPhases || !data.hideSpoilers) return [];
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()

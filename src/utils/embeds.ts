@@ -4,6 +4,8 @@ export function settingsEmbed(settings: {
   channelId: string;
   announceMatches: boolean;
   matchReminderMinutes: number;
+  bettingOpenMinutes?: number;
+  bettingLockMinutesAfterStart?: number;
   trackedEventCount?: number;
 }): EmbedBuilder {
   const tracked =
@@ -28,6 +30,20 @@ export function settingsEmbed(settings: {
         value: `${settings.matchReminderMinutes} min before start`,
         inline: true,
       },
+      ...(settings.bettingOpenMinutes !== undefined
+        ? [{
+            name: "Betting opens",
+            value: `${settings.bettingOpenMinutes} min before start`,
+            inline: true,
+          }]
+        : []),
+      ...(settings.bettingLockMinutesAfterStart !== undefined
+        ? [{
+            name: "Betting locks",
+            value: `${settings.bettingLockMinutesAfterStart} min after start`,
+            inline: true,
+          }]
+        : []),
       ...(tracked
         ? [{ name: "Tracked events", value: tracked, inline: false }]
         : []),

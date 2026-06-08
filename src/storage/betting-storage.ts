@@ -133,6 +133,15 @@ export function getMarket(id: number): BetMarket | null {
   return row ? rowToMarket(row) : null;
 }
 
+export function getMarketByGuildAndMatch(guildId: string, matchId: string): BetMarket | null {
+  const row = getDb()
+    .prepare(
+      "SELECT * FROM bet_markets WHERE guild_id = ? AND match_id = ? ORDER BY id DESC LIMIT 1",
+    )
+    .get(guildId, matchId) as Record<string, unknown> | undefined;
+  return row ? rowToMarket(row) : null;
+}
+
 export function getOpenMarket(guildId: string): BetMarket | null {
   const row = getDb()
     .prepare(

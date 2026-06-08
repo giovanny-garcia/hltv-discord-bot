@@ -5,6 +5,7 @@ import { commands } from "./bot/commands/index.js";
 import { getGgscoreClient, initGgscoreClient } from "./services/ggscore-context.js";
 import { syncGgscoreData } from "./services/ggscore-cache.service.js";
 import { PollService } from "./services/poll.service.js";
+import { MatchLifecycleService } from "./services/match-lifecycle.service.js";
 import { closeDb, initDb } from "./storage/db.js";
 
 async function main(): Promise<void> {
@@ -23,9 +24,11 @@ async function main(): Promise<void> {
   );
 
   const pollService = new PollService(client, config);
+  const lifecycleService = new MatchLifecycleService(client, config.lifecycleIntervalMs);
 
   client.once(Events.ClientReady, () => {
     pollService.start();
+    lifecycleService.start();
 
     if (config.ggscoreSyncOnStart) {
       void syncGgscoreData(getGgscoreClient(), "full")
@@ -47,6 +50,7 @@ async function main(): Promise<void> {
   const shutdown = (): void => {
     console.log("Shutting down...");
     pollService.stop();
+    lifecycleService.stop();
     client.destroy();
     closeDb();
     process.exit(0);

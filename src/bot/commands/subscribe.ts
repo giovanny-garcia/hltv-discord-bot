@@ -95,6 +95,8 @@ export const settingsCommand: BotCommand = {
           settingsEmbed({
             ...existing,
             trackedEventCount: getTrackedEvents(interaction.guildId).length,
+            bettingOpenMinutes: existing.bettingOpenMinutes,
+            bettingLockMinutesAfterStart: existing.bettingLockMinutesAfterStart,
           }),
         ],
         ephemeral: true,
@@ -120,6 +122,8 @@ export const settingsCommand: BotCommand = {
         settingsEmbed({
           ...updated,
           trackedEventCount: getTrackedEvents(interaction.guildId).length,
+          bettingOpenMinutes: updated.bettingOpenMinutes,
+          bettingLockMinutesAfterStart: updated.bettingLockMinutesAfterStart,
         }),
       ],
     });
