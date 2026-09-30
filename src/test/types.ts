@@ -3,6 +3,15 @@ export interface TestTeamInput {
   color: number;
   seriesScore: number;
   mapScore?: number;
+  playingSide?: "T" | "CT";
+}
+
+export interface TestMapInput {
+  name: string;
+  team1Rounds?: number;
+  team2Rounds?: number;
+  winnerSide?: 1 | 2;
+  live?: boolean;
 }
 
 export interface TestMatchInput {
@@ -13,6 +22,8 @@ export interface TestMatchInput {
   format: string;
   phase: "upcoming" | "live" | "finished";
   currentMap?: number;
+  currentMapName?: string;
+  maps?: TestMapInput[];
   hideSpoilers: boolean;
   scheduledInMinutes?: number;
   winnerSide?: 1 | 2;

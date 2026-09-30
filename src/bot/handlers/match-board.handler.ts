@@ -1,4 +1,5 @@
 import type { ButtonInteraction } from "discord.js";
+import { registerMatchBoard } from "../../test/board-registry.js";
 import { handleMatchBoardButton as handleTestBoardButton } from "../../test/test.service.js";
 import {
   getLifecycleSession,
@@ -19,7 +20,12 @@ export async function handleMatchBoardButton(interaction: ButtonInteraction): Pr
     const session = getLifecycleSession(interaction.guildId, matchId);
     if (session?.boardJson) {
       const board = JSON.parse(session.boardJson) as MatchBoardData;
-      const revealedBoard = { ...board, hideSpoilers: false };
+      const revealedBoard: MatchBoardData = {
+        ...board,
+        hideSpoilers: false,
+        spoilersRevealed: true,
+      };
+      registerMatchBoard(revealedBoard);
       await interaction.update(revealMatchBoard(revealedBoard));
       setLifecycleBoardJson(
         interaction.guildId,

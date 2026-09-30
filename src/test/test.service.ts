@@ -2,7 +2,7 @@ import type { ButtonInteraction, ChatInputCommandInteraction, EmbedBuilder, Text
 import { getGuildSettings } from "../storage/db.js";
 import {
   buildMatchBoardComponents,
-  buildMatchBoardEmbed,
+  buildMatchBoardEmbeds,
   matchBoardHeader,
   parseMatchBoardRevealId,
   revealMatchBoard,
@@ -51,7 +51,15 @@ function sleep(ms: number): Promise<void> {
 interface TestPreviewItem {
   label: string;
   content?: string;
-  embed: EmbedBuilder;
+  embeds: EmbedBuilder[];
+}
+
+function chunkEmbeds(embeds: EmbedBuilder[], size: number): EmbedBuilder[][] {
+  const groups: EmbedBuilder[][] = [];
+  for (let i = 0; i < embeds.length; i += size) {
+    groups.push(embeds.slice(i, i + size));
+  }
+  return groups;
 }
 
 function buildAllTestPreviews(): TestPreviewItem[] {
@@ -69,16 +77,16 @@ function buildAllTestPreviews(): TestPreviewItem[] {
   });
 
   return [
-    { label: "upcoming", embed: buildMatchBoardEmbed(upcoming) },
-    { label: "live", content: matchBoardHeader(live), embed: buildMatchBoardEmbed(live) },
-    { label: "finished", content: matchBoardHeader(finished), embed: buildMatchBoardEmbed(finished) },
-    { label: "wagers", embed: wagersEmbed(defaultWagers()) },
-    { label: "odds", embed: oddsEmbed(defaultOdds()) },
-    { label: "payouts", embed: payoutsEmbed(defaultPayouts()) },
-    { label: "rankings", embed: rankingsEmbed(defaultRankings()) },
-    { label: "streaks", embed: streaksEmbed(defaultStreaks()) },
-    { label: "predictions", embed: predictionsEmbed(defaultPredictions()) },
-    { label: "graph", embed: graphEmbed(defaultGraph()) },
+    { label: "upcoming", embeds: buildMatchBoardEmbeds(upcoming) },
+    { label: "live", content: matchBoardHeader(live), embeds: buildMatchBoardEmbeds(live) },
+    { label: "finished", content: matchBoardHeader(finished), embeds: buildMatchBoardEmbeds(finished) },
+    { label: "wagers", embeds: [wagersEmbed(defaultWagers())] },
+    { label: "odds", embeds: [oddsEmbed(defaultOdds())] },
+    { label: "payouts", embeds: [payoutsEmbed(defaultPayouts())] },
+    { label: "rankings", embeds: [rankingsEmbed(defaultRankings())] },
+    { label: "streaks", embeds: [streaksEmbed(defaultStreaks())] },
+    { label: "predictions", embeds: [predictionsEmbed(defaultPredictions())] },
+    { label: "graph", embeds: [graphEmbed(defaultGraph())] },
   ];
 }
 
@@ -103,7 +111,7 @@ async function handleTestAll(interaction: ChatInputCommandInteraction): Promise<
       const preview = previews[i];
       await channel.send({
         content: preview.content,
-        embeds: [preview.embed],
+        embeds: preview.embeds,
       });
 
       if (i < previews.length - 1) {
@@ -118,11 +126,19 @@ async function handleTestAll(interaction: ChatInputCommandInteraction): Promise<
   }
 
   await interaction.deferReply({ ephemeral: true });
+  const groups = chunkEmbeds(
+    previews.flatMap((preview) => preview.embeds),
+    10,
+  );
+  const [first, ...rest] = groups;
   await interaction.editReply({
     content:
-      "🧪 **All test previews** — one bundled message below (scroll through embeds). Use `/test all public:true` to post paced messages in-channel.",
-    embeds: previews.map((preview) => preview.embed),
+      "🧪 **All test previews** — scorecards are a header, two team cards, and one card per map. Use `/test all public:true` to post paced messages in-channel.",
+    embeds: first ?? [],
   });
+  for (const group of rest) {
+    await interaction.followUp({ embeds: group, ephemeral: true });
+  }
 }
 
 async function resolveTargetChannel(
@@ -187,7 +203,7 @@ export async function handleTestSubcommand(interaction: ChatInputCommandInteract
       registerMatchBoard(board);
       await sendPreview(interaction, {
         content: matchBoardHeader(board),
-        embeds: [buildMatchBoardEmbed(board)],
+        embeds: buildMatchBoardEmbeds(board),
         components: buildMatchBoardComponents(board),
       });
       return;
@@ -206,7 +222,7 @@ export async function handleTestSubcommand(interaction: ChatInputCommandInteract
       registerMatchBoard(board);
       await sendPreview(interaction, {
         content: matchBoardHeader(board),
-        embeds: [buildMatchBoardEmbed(board)],
+        embeds: buildMatchBoardEmbeds(board),
         components: buildMatchBoardComponents(board),
       });
       return;
@@ -217,7 +233,7 @@ export async function handleTestSubcommand(interaction: ChatInputCommandInteract
       registerMatchBoard(board);
       await sendPreview(interaction, {
         content: matchBoardHeader(board),
-        embeds: [buildMatchBoardEmbed(board)],
+        embeds: buildMatchBoardEmbeds(board),
         components: buildMatchBoardComponents(board),
       });
       return;
@@ -293,6 +309,8 @@ export async function handleMatchBoardButton(interaction: ButtonInteraction): Pr
     return true;
   }
 
-  await interaction.update(revealMatchBoard(board));
+  const revealedBoard = { ...board, hideSpoilers: false, spoilersRevealed: true };
+  registerMatchBoard(revealedBoard);
+  await interaction.update(revealMatchBoard(revealedBoard));
   return true;
 }
