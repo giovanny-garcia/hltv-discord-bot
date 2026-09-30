@@ -26,6 +26,7 @@ export function loadConfig(): EnvConfig {
     discordClientId: requireEnv("DISCORD_CLIENT_ID"),
     discordGuildId: process.env.DISCORD_GUILD_ID || undefined,
     pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 600_000),
+    lifecycleIntervalMs: Number(process.env.LIFECYCLE_INTERVAL_MS ?? 60_000),
     ggscoreApiKey: requireEnv("GGSCORE_API_KEY"),
     ggscoreBaseUrl: process.env.GGSCORE_BASE_URL ?? "https://ggscore.net",
     ggscoreDailyLimit: Number(process.env.GGSCORE_DAILY_LIMIT ?? 3),

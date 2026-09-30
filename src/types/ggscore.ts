@@ -7,9 +7,11 @@ export interface GgscoreCountry {
 }
 
 export interface GgscoreTeamSide {
-  id?: number;
-  name: string;
+  id?: number | string;
+  name?: string;
+  title?: string;
   image?: string;
+  image_url?: string;
   country?: GgscoreCountry | string;
   score?: number | string;
 }
@@ -21,16 +23,22 @@ export interface GgscoreEvent {
 }
 
 export interface GgscoreMatch {
-  id?: number;
+  id?: number | string;
   team1?: GgscoreTeamSide;
   team2?: GgscoreTeamSide;
+  team_won?: GgscoreTeamSide;
+  team_lose?: GgscoreTeamSide;
   teams?: GgscoreTeamSide[];
   winner?: GgscoreTeamSide;
   loser?: GgscoreTeamSide;
   score?: string;
+  score_won?: number | string;
+  score_lose?: number | string;
   kind?: string;
+  match_kind?: GgscoreEvent | string;
   event?: GgscoreEvent | string;
   played_at?: string;
+  play_at?: string;
   scheduled_at?: string;
   date?: string;
   online?: boolean;

@@ -1,15 +1,25 @@
 export interface GuildSettings {
   guildId: string;
   channelId: string;
+  bettingChannelId?: string;
   announceTournaments: boolean;
   announceMatches: boolean;
   minMatchStars: number;
   featuredOnly: boolean;
   matchReminderMinutes: number;
   tournamentReminderHours: number;
+  bettingOpenMinutes: number;
+  bettingLockMinutesAfterStart: number;
 }
 
 export type SeenItemKind = "event" | "match";
+
+export interface TrackedEvent {
+  guildId: string;
+  eventId: string;
+  eventName: string;
+  addedAt: number;
+}
 
 export interface SeenItem {
   id: string;
@@ -28,4 +38,5 @@ export interface EnvConfig {
   ggscoreBaseUrl: string;
   ggscoreDailyLimit: number;
   ggscoreSyncOnStart: boolean;
+  lifecycleIntervalMs: number;
 }

@@ -186,3 +186,61 @@ export function eventsEmbed(events: string[]): EmbedBuilder {
   embed.setDescription(events.slice(0, 20).map((e) => `• ${e}`).join("\n"));
   return embed;
 }
+
+export function cachedEventsEmbed(
+  events: { id: string; name: string; upcomingCount: number }[],
+  trackedIds: Set<string>,
+): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(0x2ecc71)
+    .setTitle("Cached Events")
+    .setTimestamp(new Date());
+
+  if (events.length === 0) {
+    embed.setDescription("No events in cache yet. Run `/sync scope:full` first.");
+    return embed;
+  }
+
+  const lines = events.slice(0, 25).map((event) => {
+    const tracked = trackedIds.has(event.id) ? "📌 " : "";
+    const upcoming =
+      event.upcomingCount > 0 ? ` · ${event.upcomingCount} upcoming` : "";
+    return `${tracked}**${event.name}**${upcoming}`;
+  });
+
+  embed.setDescription(lines.join("\n"));
+  embed.setFooter({
+    text: "📌 = announcing · /events track to add · /events untrack to remove",
+  });
+  return embed;
+}
+
+export function trackedEventsEmbed(
+  tracked: { eventName: string; upcomingCount?: number }[],
+): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(0x3498db)
+    .setTitle("Tracked Events")
+    .setTimestamp(new Date());
+
+  if (tracked.length === 0) {
+    embed.setDescription(
+      "No events tracked yet — **announcements are paused**.\n\nRun `/events list` to browse the cache, then `/events track` to pick tournaments you care about.",
+    );
+    return embed;
+  }
+
+  embed.setDescription(
+    tracked
+      .map((event) => {
+        const upcoming =
+          event.upcomingCount && event.upcomingCount > 0
+            ? ` · ${event.upcomingCount} upcoming`
+            : "";
+        return `📌 **${event.eventName}**${upcoming}`;
+      })
+      .join("\n"),
+  );
+  embed.setFooter({ text: "Only matches from these events are announced" });
+  return embed;
+}
