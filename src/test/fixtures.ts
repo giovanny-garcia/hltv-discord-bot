@@ -31,12 +31,14 @@ export function defaultLiveMatch(
 ): import("./types.js").TestMatchInput {
   const base = {
     matchId: `test-${Date.now()}`,
-    team1: { name: DEFAULT_TEAM1, color: TEAM1_COLOR, seriesScore: 1, mapScore: 12 },
-    team2: { name: DEFAULT_TEAM2, color: TEAM2_COLOR, seriesScore: 0, mapScore: 9 },
+    team1: { name: DEFAULT_TEAM1, color: TEAM1_COLOR, seriesScore: 1, mapScore: 12, playingSide: "CT" as const },
+    team2: { name: DEFAULT_TEAM2, color: TEAM2_COLOR, seriesScore: 0, mapScore: 9, playingSide: "T" as const },
     eventName: DEFAULT_EVENT,
     format: DEFAULT_FORMAT,
     phase: "live" as const,
     currentMap: 2,
+    currentMapName: "Mirage",
+    maps: [{ name: "Inferno", team1Rounds: 13, team2Rounds: 9, winnerSide: 1 as const }],
     hideSpoilers: true,
   };
   return {
@@ -57,6 +59,11 @@ export function defaultFinishedMatch(
     eventName: DEFAULT_EVENT,
     format: DEFAULT_FORMAT,
     phase: "finished" as const,
+    maps: [
+      { name: "Inferno", team1Rounds: 13, team2Rounds: 11, winnerSide: 1 as const },
+      { name: "Nuke", team1Rounds: 8, team2Rounds: 13, winnerSide: 2 as const },
+      { name: "Mirage", team1Rounds: 13, team2Rounds: 6, winnerSide: 1 as const },
+    ],
     hideSpoilers: false,
     winnerSide: 1 as const,
   };

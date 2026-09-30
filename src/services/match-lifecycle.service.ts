@@ -1,8 +1,8 @@
-import type { Client, GuildTextBasedChannel, TextChannel } from "discord.js";
+import type { Client, EmbedBuilder, TextChannel } from "discord.js";
 import type { GuildSettings } from "../types/index.js";
-import { lifecycleBoardFromSession } from "../types/lifecycle.js";
 import {
   getAllGuildSettings,
+  getMutedEvents,
   getTrackedEvents,
 } from "../storage/db.js";
 import {
@@ -21,19 +21,22 @@ import {
   resolveBettingChannelId,
   settleMarketForMatch,
 } from "./betting.service.js";
-import { filterTrackedMatches } from "../utils/event-cache.util.js";
+import {
+  buildBoardForSession,
+  healMissingScoreboards,
+  refreshScoreboardFromSession,
+  upsertScoreboard,
+} from "./scoreboard.service.js";
+import { filterEligibleMatches } from "../utils/event-cache.util.js";
 import { findPlayedMatchSnapshot } from "../utils/ggscore-played.util.js";
 import {
-  formatTimestamp,
   normalizeGgscoreMatch,
   type NormalizedGgscoreMatch,
 } from "../utils/ggscore-match.util.js";
-import {
-  buildMatchBoardComponents,
-  buildMatchBoardEmbed,
-  matchBoardHeader,
-  type MatchBoardData,
-} from "../utils/match-board.embed.js";
+import { lifecycleBoardFromSession } from "../types/lifecycle.js";
+import { matchBoardHeader } from "../utils/match-board.embed.js";
+import { matchStartEmbed } from "../utils/ggscore-embeds.js";
+import { syncCalendarForGuild } from "./calendar.service.js";
 
 async function fetchTextChannel(
   client: Client,
@@ -44,61 +47,15 @@ async function fetchTextChannel(
   return channel as TextChannel;
 }
 
-function persistBoard(sessionId: number, board: MatchBoardData): string {
-  return JSON.stringify(board);
-}
-
-async function upsertScoreboard(
-  client: Client,
-  settings: GuildSettings,
-  session: { id: number; boardChannelId?: string; boardMessageId?: string },
-  board: MatchBoardData,
-  header?: string,
-): Promise<void> {
-  const channelId = settings.channelId;
-  const channel = await fetchTextChannel(client, channelId);
-  if (!channel) return;
-
-  const boardJson = persistBoard(session.id, board);
-  const payload = {
-    content: header,
-    embeds: [buildMatchBoardEmbed(board)],
-    components: buildMatchBoardComponents(board),
-  };
-
-  if (session.boardMessageId && session.boardChannelId) {
-    const existingChannel = await fetchTextChannel(client, session.boardChannelId);
-    const message = await existingChannel?.messages.fetch(session.boardMessageId).catch(() => null);
-    if (message) {
-      await message.edit(payload);
-      updateLifecycleSession(session.id, {
-        boardChannelId: session.boardChannelId,
-        boardMessageId: session.boardMessageId,
-        boardJson,
-        hideSpoilers: board.hideSpoilers,
-      });
-      return;
-    }
-  }
-
-  const message = await channel.send(payload);
-  updateLifecycleSession(session.id, {
-    boardChannelId: channel.id,
-    boardMessageId: message.id,
-    boardJson,
-    hideSpoilers: board.hideSpoilers,
-  });
-}
-
-async function sendChannelMessage(
+async function sendChannelEmbed(
   client: Client,
   channelId: string,
-  content: string,
+  embed: EmbedBuilder,
 ): Promise<void> {
   const channel = await fetchTextChannel(client, channelId);
   if (!channel) return;
-  await channel.send({ content }).catch((error) => {
-    console.error(`Lifecycle message failed for ${channelId}:`, error);
+  await channel.send({ embeds: [embed] }).catch((error) => {
+    console.error(`Lifecycle embed failed for ${channelId}:`, error);
   });
 }
 
@@ -115,9 +72,11 @@ async function handleBettingOpen(
   if (!bettingChannel) return;
 
   let marketId = session.marketId;
+  let marketOpened = false;
   try {
     const opened = await openMarketForMatch(settings.guildId, bettingChannel, match);
     marketId = opened.marketId;
+    marketOpened = true;
   } catch (error) {
     console.error("Auto open market failed:", error);
   }
@@ -130,36 +89,10 @@ async function handleBettingOpen(
   });
   await upsertScoreboard(client, settings, session, board);
 
-  const when = formatTimestamp(match.scheduledAt);
-  await sendChannelMessage(
-    client,
-    bettingChannelId,
-    [
-      `💰 **Betting is open** — ${match.team1Name} vs ${match.team2Name}`,
-      match.eventName ? `🏆 ${match.eventName}` : null,
-      `Match starts ${when}`,
-      `Wagers lock **${settings.bettingLockMinutesAfterStart} min** after start.`,
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  );
-
-  await sendChannelMessage(
-    client,
-    settings.channelId,
-    [
-      `💰 **Betting window open** — ${match.team1Name} vs ${match.team2Name}`,
-      match.eventName ? `🏆 ${match.eventName}` : null,
-      `Starts ${when} · Head to <#${bettingChannelId}> to wager.`,
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  );
-
   updateLifecycleSession(session.id, {
-    status: "betting_open",
-    marketId,
-    bettingOpenSent: true,
+    status: marketOpened ? "betting_open" : session.status,
+    marketId: marketOpened ? marketId : session.marketId,
+    bettingOpenSent: marketOpened,
   });
 }
 
@@ -173,7 +106,8 @@ async function handleMatchStart(
 
   const board = lifecycleBoardFromSession(session, "live", {
     currentMap: 1,
-    hideSpoilers: true,
+    hideSpoilers: false,
+    spoilersRevealed: true,
   });
   await upsertScoreboard(
     client,
@@ -183,22 +117,12 @@ async function handleMatchStart(
     matchBoardHeader(board),
   );
 
-  await sendChannelMessage(
-    client,
-    settings.channelId,
-    [
-      `🔴 **Match started** — ${match.team1Name} vs ${match.team2Name}`,
-      match.eventName ? `🏆 ${match.eventName}` : null,
-      `Scorecard updates spoiler-free — use **Show spoilers** when ready.`,
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  );
+  await sendChannelEmbed(client, settings.channelId, matchStartEmbed(match));
 
   updateLifecycleSession(session.id, {
     status: "live",
     matchStartSent: true,
-    hideSpoilers: true,
+    hideSpoilers: false,
   });
 }
 
@@ -210,22 +134,8 @@ async function handleBettingLock(
   const session = getLifecycleSession(settings.guildId, match.id);
   if (!session) return;
 
-  await lockMarketForMatch(settings.guildId, match.id, client);
-
-  const bettingChannelId = resolveBettingChannelId(settings.guildId);
-  if (bettingChannelId) {
-    await sendChannelMessage(
-      client,
-      bettingChannelId,
-      `🔒 **Betting closed** — ${match.team1Name} vs ${match.team2Name}\nNo more wagers accepted.`,
-    );
-  }
-
-  await sendChannelMessage(
-    client,
-    settings.channelId,
-    `🔒 **Betting window closed** for ${match.team1Name} vs ${match.team2Name}.`,
-  );
+  const locked = await lockMarketForMatch(settings.guildId, match.id, client);
+  if (!locked) return;
 
   updateLifecycleSession(session.id, {
     bettingLockSent: true,
@@ -235,81 +145,61 @@ async function handleBettingLock(
 async function handleMapUpdate(
   client: Client,
   settings: GuildSettings,
-  session: Awaited<ReturnType<typeof getLifecycleSession>> & object,
+  session: NonNullable<Awaited<ReturnType<typeof getLifecycleSession>>>,
+  snapshot: NonNullable<ReturnType<typeof findPlayedMatchSnapshot>>,
   mapsCompleted: number,
   team1Series: number,
   team2Series: number,
 ): Promise<void> {
-  const board = lifecycleBoardFromSession(
-    { ...session, team1Series, team2Series },
-    "between_maps",
-    {
-      currentMap: mapsCompleted,
-      hideSpoilers: true,
-    },
-  );
-
-  await upsertScoreboard(
-    client,
-    settings,
-    session,
-    board,
-    matchBoardHeader(board),
-  );
-
-  await sendChannelMessage(
-    client,
-    settings.channelId,
-    [
-      `⏸️ **Map ${mapsCompleted} complete** — ${session.team1Name} vs ${session.team2Name}`,
-      `Series score hidden on the scorecard — no spoilers.`,
-    ].join("\n"),
-  );
-
   updateLifecycleSession(session.id, {
     mapsAnnounced: mapsCompleted,
     team1Series,
     team2Series,
-    hideSpoilers: true,
   });
+
+  const updated = getLifecycleSession(settings.guildId, session.matchId);
+  if (!updated) return;
+
+  const board = lifecycleBoardFromSession(updated, "between_maps", {
+    currentMap: mapsCompleted,
+    currentMapName: snapshot.lastCompletedMapName,
+    hideSpoilers: false,
+    spoilersRevealed: true,
+  });
+
+  await upsertScoreboard(
+    client,
+    settings,
+    updated,
+    board,
+    matchBoardHeader(board),
+  );
 }
 
 async function handleMatchFinish(
   client: Client,
   settings: GuildSettings,
   session: NonNullable<Awaited<ReturnType<typeof getLifecycleSession>>>,
-  snapshot: ReturnType<typeof findPlayedMatchSnapshot> & object,
+  snapshot: NonNullable<ReturnType<typeof findPlayedMatchSnapshot>>,
 ): Promise<void> {
-  const board = lifecycleBoardFromSession(
-    {
-      ...session,
-      team1Series: snapshot.team1Series,
-      team2Series: snapshot.team2Series,
-      winnerSide: snapshot.winnerSide,
-      hideSpoilers: true,
-    },
-    "finished",
-    { hideSpoilers: true },
-  );
+  updateLifecycleSession(session.id, {
+    status: "finished",
+    team1Series: snapshot.team1Series,
+    team2Series: snapshot.team2Series,
+    winnerSide: snapshot.winnerSide,
+    matchFinishSent: true,
+  });
 
+  const updated = getLifecycleSession(settings.guildId, session.matchId);
+  if (!updated) return;
+
+  const board = buildBoardForSession(updated);
   await upsertScoreboard(
     client,
     settings,
-    session,
+    updated,
     board,
     matchBoardHeader(board),
-  );
-
-  await sendChannelMessage(
-    client,
-    settings.channelId,
-    [
-      `✅ **Match complete** — ${session.team1Name} vs ${session.team2Name}`,
-      session.eventName ? `🏆 ${session.eventName}` : null,
-      `Final score hidden — tap **Show spoilers** on the scorecard when you're ready.`,
-    ]
-      .filter(Boolean)
-      .join("\n"),
   );
 
   if (snapshot.winnerSide) {
@@ -320,28 +210,27 @@ async function handleMatchFinish(
       client,
     );
   }
-
-  updateLifecycleSession(session.id, {
-    status: "finished",
-    team1Series: snapshot.team1Series,
-    team2Series: snapshot.team2Series,
-    winnerSide: snapshot.winnerSide,
-    matchFinishSent: true,
-    hideSpoilers: true,
-  });
 }
 
 async function processGuildLifecycle(client: Client, settings: GuildSettings): Promise<void> {
   const tracked = getTrackedEvents(settings.guildId);
-  if (tracked.length === 0) return;
+  const muted = getMutedEvents(settings.guildId);
 
   const now = Date.now();
-  const upcoming = filterTrackedMatches(
+  const upcoming = filterEligibleMatches(
     getCachedUpcomingMatches()
       .map(normalizeGgscoreMatch)
       .filter((m) => m.scheduledAt),
+    settings.feedMode,
     tracked,
+    muted,
   );
+
+  try {
+    await syncCalendarForGuild(client, settings, upcoming);
+  } catch (error) {
+    console.error(`Calendar sync failed for guild ${settings.guildId}:`, error);
+  }
 
   for (const match of upcoming) {
     const session = ensureLifecycleSession(settings.guildId, match);
@@ -381,6 +270,7 @@ async function processGuildLifecycle(client: Client, settings: GuildSettings): P
         client,
         settings,
         session,
+        snapshot,
         snapshot.mapsCompleted,
         snapshot.team1Series,
         snapshot.team2Series,
@@ -390,6 +280,17 @@ async function processGuildLifecycle(client: Client, settings: GuildSettings): P
 
     if (snapshot.finished && !session.matchFinishSent) {
       await handleMatchFinish(client, settings, session, snapshot);
+    }
+  }
+
+  const refreshedActive = getActiveLifecycleSessions(settings.guildId);
+  await healMissingScoreboards(client, settings, refreshedActive);
+
+  for (const session of refreshedActive) {
+    try {
+      await refreshScoreboardFromSession(client, settings, session);
+    } catch (error) {
+      console.error(`Scoreboard refresh failed for match ${session.matchId}:`, error);
     }
   }
 }

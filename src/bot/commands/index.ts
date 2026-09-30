@@ -10,6 +10,7 @@ import { nextCommand } from "./next.js";
 import { pingCommand } from "./ping.js";
 import { quotaCommand } from "./quota.js";
 import { resultsCommand } from "./results.js";
+import { scoreboardCommand } from "./scoreboard.js";
 import { setupCommand } from "./setup.js";
 import {
   settingsCommand,
@@ -36,6 +37,7 @@ export const commands: BotCommand[] = [
   syncCommand,
   quotaCommand,
   resultsCommand,
+  scoreboardCommand,
   countriesCommand,
   testCommand,
   timezoneCommand,
