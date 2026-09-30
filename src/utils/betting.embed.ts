@@ -5,6 +5,7 @@ import { credits, symmetricalMatchup } from "./embed-format.js";
 export function openMarketEmbed(
   market: BetMarket,
   pool: MarketPoolSummary,
+  bettors: { userId: string; side: 1 | 2; amount: number; payout?: number }[] = [],
 ): EmbedBuilder {
   const team1Share = pool.totalPool > 0 ? (pool.team1Pool / pool.totalPool) * 100 : 50;
   const team2Share = pool.totalPool > 0 ? (pool.team2Pool / pool.totalPool) * 100 : 50;
@@ -44,10 +45,27 @@ export function openMarketEmbed(
         "",
         pool.betCount > 0
           ? `**${pool.betCount}** wager${pool.betCount === 1 ? "" : "s"} · Total ${credits(pool.totalPool)}`
-          : "Use the buttons below to wager credits.",
-        market.status === "open"
-          ? "\n*You can change your wager until an admin locks betting.*"
+          : "Use the buttons on this message.",
+        bettors.length > 0
+          ? [
+              "",
+              "**Slip**",
+              ...bettors.slice(0, 16).map((bet) => {
+                const mark =
+                  market.status !== "settled"
+                    ? "•"
+                    : bet.side === market.winnerSide
+                      ? "✅"
+                      : "❌";
+                const paid =
+                  market.status === "settled" && bet.payout
+                    ? `  →  ${bet.payout.toLocaleString()}`
+                    : "";
+                return `${mark} <@${bet.userId}>   **${bet.amount.toLocaleString()}**${paid}`;
+              }),
+            ].join("\n")
           : null,
+        market.status === "open" ? "\nLocks when the match goes live." : null,
       ]
         .filter(Boolean)
         .join("\n"),

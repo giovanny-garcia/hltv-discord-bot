@@ -12,6 +12,7 @@ import {
   createMarket,
   getMarket,
   getMarketBets,
+  getMarketSlip,
   getMarketByGuildAndMatch,
   getMarketPool,
   getOpenMarket,
@@ -121,8 +122,7 @@ export async function openMarketForMatch(
 
   const pool = getMarketPool(market.id);
   const message = await channel.send({
-    content: "💰 **Wagers are open** — tap a team or quick amount.",
-    embeds: [openMarketEmbed(market, pool)],
+    embeds: [openMarketEmbed(market, pool, getMarketSlip(market.id))],
     components: buildWagerButtons(market.id, market.team1Name, market.team2Name),
   });
 
@@ -150,7 +150,8 @@ export async function refreshMarketMessageWithClient(
       : [];
 
   await message.edit({
-    embeds: [openMarketEmbed(market, pool)],
+    content: "",
+    embeds: [openMarketEmbed(market, pool, getMarketSlip(marketId))],
     components,
   });
 }

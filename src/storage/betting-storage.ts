@@ -218,6 +218,23 @@ export function clearUserBet(marketId: number, userId: string): void {
     .run(marketId, userId);
 }
 
+export function getMarketSlip(marketId: number): UserBet[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM user_bets WHERE market_id = ? ORDER BY amount DESC")
+    .all(marketId) as Record<string, unknown>[];
+
+  return rows.map((row) => ({
+    marketId: Number(row.market_id),
+    guildId: String(row.guild_id),
+    userId: String(row.user_id),
+    side: Number(row.side) as BetSide,
+    amount: Number(row.amount),
+    payout: Number(row.payout),
+    status: row.status as UserBet["status"],
+    updatedAt: Number(row.updated_at),
+  }));
+}
+
 export function getMarketBets(marketId: number): UserBet[] {
   const rows = getDb()
     .prepare("SELECT * FROM user_bets WHERE market_id = ? AND status = 'active'")
