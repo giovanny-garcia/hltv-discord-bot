@@ -44,4 +44,8 @@ export interface EnvConfig {
   ggscoreDailyLimit: number;
   ggscoreSyncOnStart: boolean;
   lifecycleIntervalMs: number;
+  /** Guild where /demo and /test are registered. Empty = those commands stay hidden. */
+  devGuildId?: string;
+  /** Discord user IDs allowed to run dev commands. Empty = anyone in the dev guild. */
+  devUserIds: string[];
 }

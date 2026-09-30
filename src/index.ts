@@ -14,14 +14,12 @@ async function main(): Promise<void> {
   initGgscoreClient(config);
 
   const client = createClient();
-  attachCommandHandler(client, commands);
+  attachCommandHandler(client, commands, config);
 
-  await registerCommands(
-    config.discordClientId,
-    config.discordToken,
-    commands,
-    config.discordGuildId,
-  );
+  await registerCommands(config.discordClientId, config.discordToken, commands, {
+    guildId: config.discordGuildId,
+    devGuildId: config.devGuildId,
+  });
 
   const pollService = new PollService(client, config);
   const lifecycleService = new MatchLifecycleService(client, config.lifecycleIntervalMs);

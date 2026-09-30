@@ -31,5 +31,10 @@ export function loadConfig(): EnvConfig {
     ggscoreBaseUrl: process.env.GGSCORE_BASE_URL ?? "https://ggscore.net",
     ggscoreDailyLimit: Number(process.env.GGSCORE_DAILY_LIMIT ?? 3),
     ggscoreSyncOnStart: process.env.GGSCORE_SYNC_ON_START === "true",
+    devGuildId: process.env.DEV_GUILD_ID?.trim() || undefined,
+    devUserIds: (process.env.DEV_USER_IDS ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean),
   };
 }

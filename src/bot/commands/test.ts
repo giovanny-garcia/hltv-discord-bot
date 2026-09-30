@@ -37,6 +37,7 @@ function matchOptions(
 }
 
 export const testCommand: BotCommand = {
+  devOnly: true,
   data: new SlashCommandBuilder()
     .setName("test")
     .setDescription("Preview betting & match UI with editable test data")

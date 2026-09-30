@@ -2,6 +2,7 @@ import type { BotCommand } from "../client.js";
 import { balanceCommand } from "./balance.js";
 import { bettingCommand } from "./betting.js";
 import { countriesCommand } from "./countries.js";
+import { demoCommand } from "./demo.js";
 import { eventsCommand } from "./events.js";
 import { helpCommand } from "./help.js";
 import { leaderboardCommand } from "./leaderboard.js";
@@ -30,6 +31,7 @@ export const commands: BotCommand[] = [
   settingsCommand,
   balanceCommand,
   bettingCommand,
+  demoCommand,
   leaderboardCommand,
   eventsCommand,
   matchesCommand,
