@@ -1,5 +1,5 @@
 import type { GgscoreMatch } from "../types/ggscore.js";
-import { extractList, GgscoreClient } from "./ggscore.service.js";
+import { extractList, GgscoreClient, scheduleHorizonLabel } from "./ggscore.service.js";
 import type {
   GgscoreCacheKey,
   GgscoreCountry,
@@ -25,6 +25,10 @@ export function getCachedUpcomingMatches(): GgscoreMatch[] {
 
 export function hasGgscoreCache(key: GgscoreCacheKey): boolean {
   return getGgscoreCache(key) !== null;
+}
+
+export function getUpcomingScheduleHorizon(): string | null {
+  return scheduleHorizonLabel(getCachedUpcomingMatches());
 }
 
 const SCOPE_TO_KEYS: Record<GgscoreSyncScope, GgscoreCacheKey[]> = {

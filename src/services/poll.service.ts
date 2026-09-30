@@ -43,7 +43,7 @@ export class PollService {
     if (!this.running) return;
 
     try {
-      console.log("Processing cached matches for announcements...");
+      console.log("Processing cached matches for morning announcements...");
       const matchCount = await announceGgscoreAllGuilds(this.client);
       console.log(`Announce pass complete: ${matchCount} message(s) sent`);
       this.currentIntervalMs = this.baseIntervalMs;

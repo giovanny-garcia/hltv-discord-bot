@@ -109,3 +109,16 @@ export function extractList<T>(payload: GgscorePaginatedResponse<T> | T[] | null
   if (Array.isArray(payload.countries)) return payload.countries as T[];
   return [];
 }
+
+export function scheduleHorizonLabel(matches: GgscoreMatch[]): string | null {
+  const times = matches
+    .map((match) => Date.parse(String(match.play_at ?? match.scheduled_at ?? match.date ?? "")))
+    .filter((ms) => Number.isFinite(ms))
+    .sort((a, b) => a - b);
+  if (times.length === 0) return null;
+
+  const latest = times[times.length - 1];
+  const days = Math.max(0, Math.ceil((latest - Date.now()) / 86_400_000));
+  const when = new Date(latest).toISOString().slice(0, 10);
+  return `${matches.length} matches through ${when} (~${days} day${days === 1 ? "" : "s"} ahead)`;
+}

@@ -69,6 +69,7 @@ export interface GgscoreSyncResult {
   requestsUsed: number;
   requestsRemaining: number;
   errors: string[];
+  horizon?: string;
 }
 
 export interface GgscoreQuota {

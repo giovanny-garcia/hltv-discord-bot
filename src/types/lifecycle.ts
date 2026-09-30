@@ -25,6 +25,7 @@ export interface MatchLifecycleSession {
   winnerSide?: 1 | 2;
   hideSpoilers: boolean;
   bettingOpenSent: boolean;
+  morningAnnounceSent: boolean;
   matchStartSent: boolean;
   bettingLockSent: boolean;
   matchFinishSent: boolean;

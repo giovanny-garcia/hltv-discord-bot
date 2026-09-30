@@ -28,7 +28,7 @@ export const subscribeCommand: BotCommand = {
 
     upsertGuildSettings(interaction.guildId, channel.id);
     await interaction.reply({
-      content: `Subscribed to match announcements in ${channel}. Track events with \`/events track\` — nothing is announced until you pick tournaments.`,
+      content: `Announcements will post in ${channel}. For wagers and the watch-party calendar in one step, run \`/setup\` here instead.`,
     });
   },
 };
@@ -63,10 +63,10 @@ export const settingsCommand: BotCommand = {
     )
     .addIntegerOption((option) =>
       option
-        .setName("match_reminder")
-        .setDescription("Minutes before match start to send reminder")
-        .setMinValue(5)
-        .setMaxValue(180),
+        .setName("morning_hour")
+        .setDescription("Hour in the server timezone to post the daily schedule (0–23)")
+        .setMinValue(0)
+        .setMaxValue(23),
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
   async execute(interaction) {
@@ -85,9 +85,9 @@ export const settingsCommand: BotCommand = {
     }
 
     const matches = interaction.options.getBoolean("matches");
-    const matchReminder = interaction.options.getInteger("match_reminder");
+    const morningHour = interaction.options.getInteger("morning_hour");
 
-    const hasUpdates = matches !== null || matchReminder !== null;
+    const hasUpdates = matches !== null || morningHour !== null;
 
     if (!hasUpdates) {
       await interaction.reply({
@@ -106,7 +106,7 @@ export const settingsCommand: BotCommand = {
 
     const updated = updateGuildSettings(interaction.guildId, {
       announceMatches: matches ?? undefined,
-      matchReminderMinutes: matchReminder ?? undefined,
+      morningAnnounceHour: morningHour ?? undefined,
     });
 
     if (!updated) {

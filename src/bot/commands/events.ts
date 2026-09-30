@@ -6,20 +6,27 @@ import {
 import type { BotCommand } from "../client.js";
 import {
   addTrackedEvent,
+  clearMutedEvents,
   clearTrackedEvents,
   getGuildSettings,
+  getMutedEvents,
   getTrackedEvents,
+  muteEvent,
   removeTrackedEvent,
+  unmuteEvent,
+  updateGuildSettings,
 } from "../../storage/db.js";
 import { manualAnnounceEventForGuild } from "../../services/ggscore-announce.service.js";
 import {
   cachedEventsEmbed,
+  tierOneDefaultsEmbed,
   trackedEventsEmbed,
 } from "../../utils/ggscore-embeds.js";
 import {
   findCachedEvent,
   getCachedEventOptions,
 } from "../../utils/event-cache.util.js";
+import { isTierOneEvent } from "../../utils/tier-one.js";
 
 function trackedIdSet(guildId: string): Set<string> {
   return new Set(getTrackedEvents(guildId).map((event) => event.eventId));
@@ -47,7 +54,14 @@ export const eventsCommand: BotCommand = {
     .setName("events")
     .setDescription("Browse cached events and choose which ones to announce")
     .addSubcommand((sub) =>
-      sub.setName("list").setDescription("All events in cache (📌 = announcing)"),
+      sub
+        .setName("list")
+        .setDescription("All events in cache (⭐ tier-one · 📌 added · 🚫 hidden)"),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("defaults")
+        .setDescription("What counts as tier-one on the default feed"),
     )
     .addSubcommand((sub) =>
       sub
@@ -76,7 +90,7 @@ export const eventsCommand: BotCommand = {
     .addSubcommand((sub) =>
       sub
         .setName("announce")
-        .setDescription("Post upcoming matches for an event right now")
+        .setDescription("Post today's match schedule for an event right now")
         .addStringOption((option) =>
           option
             .setName("event")
@@ -96,12 +110,17 @@ export const eventsCommand: BotCommand = {
         ),
     )
     .addSubcommand((sub) =>
-      sub.setName("tracked").setDescription("Events you are currently announcing"),
+      sub.setName("tracked").setDescription("Extra events added on top of tier-one"),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("reset")
+        .setDescription("Back to default: only Majors, BLAST, ESL Pro League, and IEM"),
     )
     .addSubcommand((sub) =>
       sub
         .setName("clear")
-        .setDescription("Remove all tracked events (pauses announcements)"),
+        .setDescription("Same as /events reset — drop extras and unmute tier-one"),
     ),
   async autocomplete(interaction) {
     if (interaction.commandName !== "events") return;
@@ -118,8 +137,20 @@ export const eventsCommand: BotCommand = {
     if (sub === "list") {
       const events = getCachedEventOptions();
       const tracked = trackedIdSet(interaction.guildId);
+      const muted = new Set(getMutedEvents(interaction.guildId).map((event) => event.eventId));
       await interaction.reply({
-        embeds: [cachedEventsEmbed(events, tracked)],
+        embeds: [cachedEventsEmbed(events, tracked, muted)],
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (sub === "defaults") {
+      const upcomingTierOne = getCachedEventOptions().filter(
+        (event) => isTierOneEvent(event.name) && event.upcomingCount > 0,
+      );
+      await interaction.reply({
+        embeds: [tierOneDefaultsEmbed(upcomingTierOne)],
         ephemeral: true,
       });
       return;
@@ -139,20 +170,38 @@ export const eventsCommand: BotCommand = {
       return;
     }
 
-    if (sub === "clear") {
+    if (sub === "clear" || sub === "reset") {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
-        await interaction.reply({ content: "You need Manage Server to clear tracked events.", ephemeral: true });
+        await interaction.reply({
+          content: "You need Manage Server to reset the event feed.",
+          ephemeral: true,
+        });
         return;
       }
 
-      const removed = clearTrackedEvents(interaction.guildId);
-      await interaction.reply({
-        content:
-          removed > 0
-            ? `Removed **${removed}** tracked event(s). Announcements are paused until you track events again.`
-            : "No tracked events to clear.",
-        ephemeral: true,
-      });
+      if (!getGuildSettings(interaction.guildId)) {
+        await interaction.reply({
+          content: "Run `/setup` first.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const removedExtras = clearTrackedEvents(interaction.guildId);
+      const unmuted = clearMutedEvents(interaction.guildId);
+      updateGuildSettings(interaction.guildId, { feedMode: "tier1" });
+
+      const parts = [
+        "Feed reset to **tier-one only**: Majors, BLAST, ESL Pro League, IEM, and the Esports World Cup.",
+      ];
+      if (removedExtras > 0) parts.push(`Removed **${removedExtras}** extra event(s).`);
+      if (unmuted > 0) parts.push(`Unmuted **${unmuted}** event(s).`);
+      if (removedExtras === 0 && unmuted === 0) {
+        parts.push("Nothing else was tracked or muted.");
+      }
+      parts.push("Add others again with `/events track`.");
+
+      await interaction.reply({ content: parts.join("\n"), ephemeral: true });
       return;
     }
 
@@ -191,6 +240,7 @@ export const eventsCommand: BotCommand = {
         const alsoTrack = interaction.options.getBoolean("also_track") ?? true;
         const force = interaction.options.getBoolean("force") ?? false;
         if (alsoTrack) {
+          unmuteEvent(interaction.guildId, cached.id);
           addTrackedEvent(interaction.guildId, cached.id, cached.name);
         }
 
@@ -209,7 +259,7 @@ export const eventsCommand: BotCommand = {
         const parts: string[] = [];
         if (result.sent > 0) {
           parts.push(
-            `Posted **${result.sent}** match${result.sent === 1 ? "" : "es"} for **${cached.name}** in <#${settings.channelId}>.`,
+            `Posted today's schedule for **${cached.name}** (${result.total} match${result.total === 1 ? "" : "es"}) in <#${settings.channelId}>.`,
           );
         } else {
           parts.push(`No new posts for **${cached.name}**.`);
@@ -227,21 +277,24 @@ export const eventsCommand: BotCommand = {
       }
 
       if (sub === "track") {
+        unmuteEvent(interaction.guildId, cached.id);
         addTrackedEvent(interaction.guildId, cached.id, cached.name);
         await interaction.reply({
           content: [
-            `Now tracking **${cached.name}**${cached.upcomingCount > 0 ? ` (${cached.upcomingCount} upcoming match${cached.upcomingCount === 1 ? "" : "es"})` : ""}.`,
-            "New matches auto-post on the poll cycle, or run `/events announce` to post immediately.",
+            `**${cached.name}** is included${cached.upcomingCount > 0 ? ` (${cached.upcomingCount} upcoming match${cached.upcomingCount === 1 ? "" : "es"})` : ""}.`,
+            "Matches are posted in the morning, added to the server Events list, and open for wagers.",
           ].join("\n"),
         });
         return;
       }
 
-      const removed = removeTrackedEvent(interaction.guildId, cached.id);
+      removeTrackedEvent(interaction.guildId, cached.id);
+      muteEvent(interaction.guildId, cached.id, cached.name);
+      const tierNote = isTierOneEvent(cached.name)
+        ? " It stays hidden until you `/events track` it again."
+        : "";
       await interaction.reply({
-        content: removed
-          ? `Stopped announcing **${cached.name}**.`
-          : `**${cached.name}** was not tracked.`,
+        content: `Stopped announcing **${cached.name}**.${tierNote}`,
         ephemeral: true,
       });
     }

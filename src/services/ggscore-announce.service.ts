@@ -3,27 +3,23 @@ import type { GuildSettings } from "../types/index.js";
 import {
   getAllGuildSettings,
   getGuildSettings,
-  getSeenItem,
+  getMutedEvents,
   getTrackedEvents,
-  markReminderSent,
-  markSeen,
 } from "../storage/db.js";
-import { getUpcomingMatchesForEvent, filterTrackedMatches } from "../utils/event-cache.util.js";
-import { getLifecycleSession } from "../storage/lifecycle-storage.js";
+import { getUpcomingMatchesForEvent, filterEligibleMatches } from "../utils/event-cache.util.js";
+import {
+  ensureLifecycleSession,
+  getLifecycleSession,
+  updateLifecycleSession,
+} from "../storage/lifecycle-storage.js";
 import { getCachedUpcomingMatches } from "./ggscore-cache.service.js";
 import {
-  isStartingSoon,
+  isPastMorningHour,
   normalizeGgscoreMatch,
   type NormalizedGgscoreMatch,
 } from "../utils/ggscore-match.util.js";
-import {
-  matchReminderEmbed,
-  newMatchEmbed,
-} from "../utils/ggscore-embeds.js";
-
-function matchKey(id: string): string {
-  return `ggscore-match:${id}`;
-}
+import { isSameLocalDay } from "../utils/time-zone.js";
+import { morningScheduleEmbed } from "../utils/ggscore-embeds.js";
 
 async function getChannel(client: Client, channelId: string): Promise<TextChannel | null> {
   const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -48,6 +44,23 @@ async function sendEmbed(
   }
 }
 
+function pendingMorningMatches(
+  guildId: string,
+  matches: NormalizedGgscoreMatch[],
+  now: Date,
+  timeZone: string,
+): NormalizedGgscoreMatch[] {
+  return matches.filter((match) => {
+    if (!match.scheduledAt) return false;
+    const startMs = match.scheduledAt * 1000;
+    if (startMs <= now.getTime()) return false;
+    if (!isSameLocalDay(new Date(startMs), now, timeZone)) return false;
+
+    const session = getLifecycleSession(guildId, match.id);
+    return !session?.morningAnnounceSent;
+  });
+}
+
 export async function announceGgscoreForGuild(
   client: Client,
   settings: GuildSettings,
@@ -55,38 +68,24 @@ export async function announceGgscoreForGuild(
 ): Promise<number> {
   if (!settings.announceMatches) return 0;
 
+  const now = new Date();
+  if (!isPastMorningHour(now, settings.morningAnnounceHour, settings.timezone)) return 0;
+
   const tracked = getTrackedEvents(settings.guildId);
-  const eligible = filterTrackedMatches(matches, tracked);
-  const { guildId, channelId } = settings;
-  let announced = 0;
+  const muted = getMutedEvents(settings.guildId);
+  const eligible = filterEligibleMatches(matches, settings.feedMode, tracked, muted);
+  const pending = pendingMorningMatches(settings.guildId, eligible, now, settings.timezone);
+  if (pending.length === 0) return 0;
 
-  for (const match of eligible) {
-    if (getLifecycleSession(guildId, match.id)) continue;
-    const key = matchKey(match.id);
-    const seen = getSeenItem(guildId, key);
+  const sent = await sendEmbed(client, settings.channelId, morningScheduleEmbed(pending));
+  if (!sent) return 0;
 
-    if (!seen) {
-      const sent = await sendEmbed(client, channelId, newMatchEmbed(match));
-      if (sent) {
-        markSeen(guildId, key, "match");
-        announced++;
-      }
-      continue;
-    }
-
-    if (
-      isStartingSoon(match, settings.matchReminderMinutes) &&
-      !getSeenItem(guildId, key)?.reminderSent
-    ) {
-      const sent = await sendEmbed(client, channelId, matchReminderEmbed(match));
-      if (sent) {
-        markReminderSent(guildId, key, "match");
-        announced++;
-      }
-    }
+  for (const match of pending) {
+    const session = ensureLifecycleSession(settings.guildId, match);
+    updateLifecycleSession(session.id, { morningAnnounceSent: true });
   }
 
-  return announced;
+  return 1;
 }
 
 export async function announceGgscoreAllGuilds(client: Client): Promise<number> {
@@ -114,22 +113,35 @@ export async function manualAnnounceEventForGuild(
   }
 
   const matches = getUpcomingMatchesForEvent(eventId);
-  let sent = 0;
-  let skipped = 0;
+  const now = new Date();
+  const upcoming = matches.filter((match) => {
+    if (!match.scheduledAt) return false;
+    return match.scheduledAt * 1000 > now.getTime();
+  });
 
-  for (const match of matches) {
-    const key = matchKey(match.id);
-    if (!options?.force && getSeenItem(guildId, key)) {
-      skipped++;
-      continue;
-    }
+  if (upcoming.length === 0) {
+    return { sent: 0, skipped: 0, total: 0 };
+  }
 
-    const ok = await sendEmbed(client, settings.channelId, newMatchEmbed(match));
-    if (ok) {
-      markSeen(guildId, key, "match");
-      sent++;
+  if (!options?.force) {
+    const alreadyAnnounced = upcoming.every((match) => {
+      const session = getLifecycleSession(guildId, match.id);
+      return session?.morningAnnounceSent;
+    });
+    if (alreadyAnnounced) {
+      return { sent: 0, skipped: upcoming.length, total: upcoming.length };
     }
   }
 
-  return { sent, skipped, total: matches.length };
+  const ok = await sendEmbed(client, settings.channelId, morningScheduleEmbed(upcoming));
+  if (!ok) {
+    return { sent: 0, skipped: upcoming.length, total: upcoming.length };
+  }
+
+  for (const match of upcoming) {
+    const session = ensureLifecycleSession(guildId, match);
+    updateLifecycleSession(session.id, { morningAnnounceSent: true });
+  }
+
+  return { sent: 1, skipped: 0, total: upcoming.length };
 }
