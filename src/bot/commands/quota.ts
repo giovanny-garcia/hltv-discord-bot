@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import type { BotCommand } from "../client.js";
-import { getGgscoreClient } from "../../services/ggscore-context.js";
+import { getGgscoreClient, getGgscoreQuotaPolicy } from "../../services/ggscore-context.js";
+import { getManualHeavySyncCount } from "../../storage/db.js";
 import { quotaEmbed } from "../../utils/ggscore-embeds.js";
 
 export const quotaCommand: BotCommand = {
@@ -9,6 +10,17 @@ export const quotaCommand: BotCommand = {
     .setDescription("Show GGScore API usage and cache status"),
   async execute(interaction) {
     const quota = getGgscoreClient().getQuota();
-    await interaction.reply({ embeds: [quotaEmbed(quota)], ephemeral: true });
+    const policy = getGgscoreQuotaPolicy();
+    await interaction.reply({
+      embeds: [
+        quotaEmbed(quota, {
+          maxUpcomingPages: policy.maxUpcomingPages,
+          reserveCalls: policy.reserveCalls,
+          manualHeavySyncsPerDay: policy.manualHeavySyncsPerDay,
+          manualHeavySyncsUsed: getManualHeavySyncCount(),
+        }),
+      ],
+      ephemeral: true,
+    });
   },
 };

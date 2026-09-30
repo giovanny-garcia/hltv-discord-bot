@@ -7,4 +7,11 @@ data/
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
 *.log
+*.pem
+*.key
+credentials.json
+.DS_Store
+Thumbs.db

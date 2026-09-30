@@ -107,11 +107,6 @@ export function quotaEmbed(
     reserveCalls: number;
     manualHeavySyncsPerDay: number;
     manualHeavySyncsUsed: number;
-  } = {
-    maxUpcomingPages: 3,
-    reserveCalls: 1,
-    manualHeavySyncsPerDay: 3,
-    manualHeavySyncsUsed: 0,
   },
 ): EmbedBuilder {
   const meta = getGgscoreCacheMeta();
