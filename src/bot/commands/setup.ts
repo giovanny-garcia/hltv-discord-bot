@@ -6,13 +6,21 @@ import {
 } from "discord.js";
 import type { BotCommand } from "../client.js";
 import { getGgscoreCache, upsertGuildSettings } from "../../storage/db.js";
-import { getGgscoreClient } from "../../services/ggscore-context.js";
+import {
+  getGgscoreClient,
+  getGgscoreScheduledSyncHours,
+} from "../../services/ggscore-context.js";
 import {
   getCachedUpcomingMatches,
   getUpcomingScheduleHorizon,
   syncGgscoreData,
 } from "../../services/ggscore-cache.service.js";
 import { GgscoreQuotaExceededError } from "../../services/ggscore.service.js";
+import {
+  checkManualHeavySync,
+  explainManualHeavySyncBlock,
+  recordManualHeavySync,
+} from "../../services/ggscore-sync-guard.js";
 import { isUpcoming, normalizeGgscoreMatch } from "../../utils/ggscore-match.util.js";
 import { isTierOneEvent } from "../../utils/tier-one.js";
 
@@ -117,16 +125,29 @@ function callsLeft(remaining: number): string {
 
 async function refreshScheduleIfStale(): Promise<string> {
   const upcoming = getGgscoreCache("upcoming_matches");
+  const results = getGgscoreCache("matches");
   const now = Date.now();
-  if (upcoming && now - upcoming.fetchedAt <= CACHE_FRESH_MS) {
+  const upcomingStale = !upcoming || now - upcoming.fetchedAt > CACHE_FRESH_MS;
+  const resultsStale = !results || now - results.fetchedAt > CACHE_FRESH_MS;
+  const hasUpcoming = getCachedUpcomingMatches().length > 0;
+  const scheduled = getGgscoreScheduledSyncHours().length > 0;
+
+  if (scheduled && hasUpcoming) {
+    return "The schedule refreshes on its own, so this did not use an API call.";
+  }
+
+  if (!hasUpcoming && upcoming && !upcomingStale) {
+    return "The schedule was already refreshed and has no upcoming matches, so this did not use an API call.";
+  }
+
+  if (hasUpcoming && !upcomingStale && !resultsStale) {
     return "The schedule was already fresh, so this did not use an API call.";
   }
 
   try {
     const client = getGgscoreClient();
-    const result = await syncGgscoreData(client, "full");
-    const problem = result.errors.length > 0 ? ` ${result.errors.join(" ")}` : "";
-    return `Schedule refreshed.${problem} ${callsLeft(client.getQuota().remaining)}`;
+    if (!hasUpcoming) return await refreshEmptySchedule(client);
+    return await refreshStaleSchedule(client, upcomingStale, resultsStale);
   } catch (error) {
     if (error instanceof GgscoreQuotaExceededError) {
       return `Daily quota hit (${error.used}/${error.limit}). Cached matches still work until tomorrow.`;
@@ -134,4 +155,55 @@ async function refreshScheduleIfStale(): Promise<string> {
     const message = error instanceof Error ? error.message : String(error);
     return `Schedule refresh failed: ${message}`;
   }
+}
+
+/** One capped upcoming fetch. Counts as a manual heavy sync. */
+async function refreshEmptySchedule(client: ReturnType<typeof getGgscoreClient>): Promise<string> {
+  const gate = checkManualHeavySync();
+  if (!gate.ok) {
+    const followUp =
+      getGgscoreScheduledSyncHours().length > 0
+        ? " The next automatic sync will load the schedule."
+        : "";
+    return `${explainManualHeavySyncBlock(gate)}${followUp}`;
+  }
+
+  recordManualHeavySync();
+  const result = await syncGgscoreData(client, "upcoming");
+  const horizon = result.horizon ? ` ${result.horizon}.` : "";
+  const problem = result.errors.length > 0 ? ` ${result.errors.join(" ")}` : "";
+  return `Schedule loaded.${horizon}${problem} ${callsLeft(client.getQuota().remaining)}`;
+}
+
+/**
+ * Used when scheduled hours are empty. Upcoming refresh is a manual heavy sync.
+ * A results refresh may still spend the reserve.
+ */
+async function refreshStaleSchedule(
+  client: ReturnType<typeof getGgscoreClient>,
+  upcomingStale: boolean,
+  resultsStale: boolean,
+): Promise<string> {
+  const notes: string[] = [];
+
+  if (upcomingStale) {
+    const gate = checkManualHeavySync();
+    if (!gate.ok) {
+      notes.push(explainManualHeavySyncBlock(gate));
+    } else {
+      recordManualHeavySync();
+      const result = await syncGgscoreData(client, "upcoming");
+      const horizon = result.horizon ? ` ${result.horizon}.` : "";
+      notes.push(`Schedule refreshed.${horizon}`);
+      if (result.errors.length > 0) notes.push(result.errors.join(" "));
+    }
+  }
+
+  if (resultsStale && client.getQuota().remaining > 0) {
+    await syncGgscoreData(client, "results");
+    notes.push("Results refreshed.");
+  }
+
+  notes.push(callsLeft(client.getQuota().remaining));
+  return notes.join(" ");
 }

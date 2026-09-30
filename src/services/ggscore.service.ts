@@ -31,6 +31,9 @@ interface GgscoreClientOptions {
   dailyLimit: number;
 }
 
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_UPCOMING_PAGES = 20;
+
 export class GgscoreClient {
   constructor(private readonly options: GgscoreClientOptions) {}
 
@@ -52,7 +55,7 @@ export class GgscoreClient {
     }
   }
 
-  private async request<T>(path: string, cacheKey: string): Promise<T> {
+  private async requestJson(path: string): Promise<unknown> {
     this.assertQuotaAvailable();
 
     const url = new URL(path, this.options.baseUrl);
@@ -73,29 +76,74 @@ export class GgscoreClient {
       );
     }
 
-    const payload = (await response.json()) as T;
-    setGgscoreCache(cacheKey, payload);
-    return payload;
+    return response.json();
   }
 
   fetchCountries(): Promise<GgscorePaginatedResponse<GgscoreCountry> | GgscoreCountry[]> {
-    return this.request("/api/v2/countries", "countries");
+    return this.requestJson("/api/v2/countries").then((payload) => {
+      setGgscoreCache("countries", payload);
+      return payload as GgscorePaginatedResponse<GgscoreCountry> | GgscoreCountry[];
+    });
   }
 
-  fetchPlayedMatches(limit = 50, offset = 0): Promise<GgscorePaginatedResponse<GgscoreMatch>> {
+  fetchPlayedMatches(limit = DEFAULT_PAGE_SIZE, page = 1): Promise<GgscorePaginatedResponse<GgscoreMatch>> {
     const params = new URLSearchParams({
       limit: String(limit),
-      offset: String(offset),
+      page: String(page),
     });
-    return this.request(`/api/v2/matches?${params}`, "matches");
+    return this.requestJson(`/api/v2/matches?${params}`).then((payload) => {
+      setGgscoreCache("matches", payload);
+      return payload as GgscorePaginatedResponse<GgscoreMatch>;
+    });
   }
 
-  fetchUpcomingMatches(limit = 50, offset = 0): Promise<GgscorePaginatedResponse<GgscoreMatch>> {
-    const params = new URLSearchParams({
-      limit: String(limit),
-      offset: String(offset),
-    });
-    return this.request(`/api/v2/upcoming_matches?${params}`, "upcoming_matches");
+  /**
+   * Pulls several upcoming pages into one cache entry.
+   * Each page costs one API request. Stops on a short page, when quota runs out,
+   * or when remaining calls would drop to `minRemaining` (the results reserve).
+   * A zero page budget does not overwrite the cache.
+   */
+  async fetchUpcomingMatches(maxPages = 1, minRemaining = 0): Promise<{
+    matches: GgscoreMatch[];
+    pagesFetched: number;
+  }> {
+    const pages = Math.min(Math.max(0, maxPages), MAX_UPCOMING_PAGES);
+    if (pages === 0 || this.getQuota().remaining <= minRemaining) {
+      return { matches: [], pagesFetched: 0 };
+    }
+
+    const byId = new Map<string, GgscoreMatch>();
+    let pagesFetched = 0;
+
+    for (let page = 1; page <= pages; page++) {
+      if (this.getQuota().remaining <= minRemaining) break;
+
+      const params = new URLSearchParams({
+        limit: String(DEFAULT_PAGE_SIZE),
+        page: String(page),
+      });
+      const payload = (await this.requestJson(
+        `/api/v2/upcoming_matches?${params}`,
+      )) as GgscorePaginatedResponse<GgscoreMatch>;
+      pagesFetched += 1;
+
+      const list = extractList(payload);
+      for (const match of list) {
+        const id =
+          match.id !== undefined
+            ? String(match.id)
+            : `${match.play_at ?? ""}-${JSON.stringify(match.team1)}-${JSON.stringify(match.team2)}`;
+        byId.set(id, match);
+      }
+
+      if (list.length < DEFAULT_PAGE_SIZE) break;
+    }
+
+    if (pagesFetched === 0) return { matches: [], pagesFetched: 0 };
+
+    const matches = [...byId.values()];
+    setGgscoreCache("upcoming_matches", { data: matches });
+    return { matches, pagesFetched };
   }
 }
 

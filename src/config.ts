@@ -20,6 +20,36 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function parseBoundedInt(
+  name: string,
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${name} must be an integer from ${min} to ${max} (got "${raw.trim()}")`);
+  }
+  return value;
+}
+
+function parseScheduledSyncHours(raw: string | undefined): number[] {
+  if (!raw?.trim()) return [];
+  const hours = new Set<number>();
+  for (const part of raw.split(",")) {
+    const hour = Number(part.trim());
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+      throw new Error(
+        `GGSCORE_SCHEDULED_SYNC_HOURS must be comma-separated UTC hours 0–23 (got "${part.trim()}")`,
+      );
+    }
+    hours.add(hour);
+  }
+  return [...hours].sort((a, b) => a - b);
+}
+
 export function loadConfig(): EnvConfig {
   return {
     discordToken: requireEnv("DISCORD_TOKEN"),
@@ -31,6 +61,29 @@ export function loadConfig(): EnvConfig {
     ggscoreBaseUrl: process.env.GGSCORE_BASE_URL ?? "https://ggscore.net",
     ggscoreDailyLimit: Number(process.env.GGSCORE_DAILY_LIMIT ?? 3),
     ggscoreSyncOnStart: process.env.GGSCORE_SYNC_ON_START === "true",
+    ggscoreSyncCooldownMs: Number(process.env.GGSCORE_SYNC_COOLDOWN_MS ?? 3_600_000),
+    ggscoreMaxUpcomingPages: parseBoundedInt(
+      "GGSCORE_MAX_UPCOMING_PAGES",
+      process.env.GGSCORE_MAX_UPCOMING_PAGES,
+      3,
+      1,
+      20,
+    ),
+    ggscoreReserveCalls: parseBoundedInt(
+      "GGSCORE_RESERVE_CALLS",
+      process.env.GGSCORE_RESERVE_CALLS,
+      1,
+      0,
+      10_000,
+    ),
+    ggscoreManualHeavySyncsPerDay: parseBoundedInt(
+      "GGSCORE_MANUAL_HEAVY_SYNCS_PER_DAY",
+      process.env.GGSCORE_MANUAL_HEAVY_SYNCS_PER_DAY,
+      3,
+      0,
+      100,
+    ),
+    ggscoreScheduledSyncHours: parseScheduledSyncHours(process.env.GGSCORE_SCHEDULED_SYNC_HOURS),
     devGuildId: process.env.DEV_GUILD_ID?.trim() || undefined,
     devUserIds: (process.env.DEV_USER_IDS ?? "")
       .split(",")

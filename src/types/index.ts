@@ -43,6 +43,16 @@ export interface EnvConfig {
   ggscoreBaseUrl: string;
   ggscoreDailyLimit: number;
   ggscoreSyncOnStart: boolean;
+  /** Min ms between admin /sync for heavy scopes (upcoming|full). 0 disables. */
+  ggscoreSyncCooldownMs: number;
+  /** Upcoming pages per heavy sync. Each page is one API call. */
+  ggscoreMaxUpcomingPages: number;
+  /** Heavy syncs refuse to start when remaining calls are at or below this. */
+  ggscoreReserveCalls: number;
+  /** Manual upcoming/full syncs per UTC day. Scheduled syncs do not count. */
+  ggscoreManualHeavySyncsPerDay: number;
+  /** UTC hours (0–23) for automatic full sync. Empty = disabled. */
+  ggscoreScheduledSyncHours: number[];
   lifecycleIntervalMs: number;
   /** Guild where /demo and /test are registered. Empty = those commands stay hidden. */
   devGuildId?: string;

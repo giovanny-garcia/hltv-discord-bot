@@ -4,6 +4,7 @@ import { attachCommandHandler, createClient, registerCommands } from "./bot/clie
 import { commands } from "./bot/commands/index.js";
 import { getGgscoreClient, initGgscoreClient } from "./services/ggscore-context.js";
 import { syncGgscoreData } from "./services/ggscore-cache.service.js";
+import { ScheduledSyncService, recordHeavySyncTime } from "./services/ggscore-sync-guard.js";
 import { PollService } from "./services/poll.service.js";
 import { MatchLifecycleService } from "./services/match-lifecycle.service.js";
 import { closeDb, initDb } from "./storage/db.js";
@@ -23,14 +24,17 @@ async function main(): Promise<void> {
 
   const pollService = new PollService(client, config);
   const lifecycleService = new MatchLifecycleService(client, config.lifecycleIntervalMs);
+  const scheduledSync = new ScheduledSyncService(config.ggscoreScheduledSyncHours);
 
   client.once(Events.ClientReady, () => {
     pollService.start();
     lifecycleService.start();
+    scheduledSync.start();
 
     if (config.ggscoreSyncOnStart) {
       void syncGgscoreData(getGgscoreClient(), "full")
         .then((result) => {
+          if (result.requestsUsed > 0) recordHeavySyncTime();
           console.log(
             `Startup sync: fetched ${result.fetched.join(", ")}, remaining ${result.requestsRemaining}`,
           );
@@ -40,7 +44,7 @@ async function main(): Promise<void> {
         });
     } else {
       console.log(
-        "No startup sync (GGSCORE_SYNC_ON_START=false). Run /sync scope:full once to populate the cache.",
+        "No startup sync (GGSCORE_SYNC_ON_START=false). Run /setup in Discord to load the schedule.",
       );
     }
   });
@@ -49,6 +53,7 @@ async function main(): Promise<void> {
     console.log("Shutting down...");
     pollService.stop();
     lifecycleService.stop();
+    scheduledSync.stop();
     client.destroy();
     closeDb();
     process.exit(0);
