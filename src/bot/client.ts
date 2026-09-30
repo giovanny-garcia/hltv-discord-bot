@@ -13,7 +13,9 @@ import type {
   SlashCommandOptionsOnlyBuilder,
   SlashCommandSubcommandsOnlyBuilder,
 } from "discord.js";
+import type { EnvConfig } from "../types/index.js";
 import { handleBettingButton, handleBettingModal } from "./handlers/betting.handler.js";
+import { handleDemoButton, handleDemoModal } from "./handlers/demo.handler.js";
 import { handleMatchBoardButton } from "./handlers/match-board.handler.js";
 
 export interface BotCommand {
@@ -24,6 +26,8 @@ export interface BotCommand {
     | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">;
   execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
   autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
+  /** Only registered in DEV_GUILD_ID; not shown to normal servers. */
+  devOnly?: boolean;
 }
 
 export function createClient(): Client {
@@ -32,25 +36,60 @@ export function createClient(): Client {
   });
 }
 
+function toBody(commands: BotCommand[]): object[] {
+  return commands.map((cmd) => cmd.data.toJSON());
+}
+
 export async function registerCommands(
   clientId: string,
   token: string,
   commands: BotCommand[],
-  guildId?: string,
+  options?: { guildId?: string; devGuildId?: string },
 ): Promise<void> {
   const rest = new REST({ version: "10" }).setToken(token);
-  const body = commands.map((cmd) => cmd.data.toJSON());
+  const publicCommands = commands.filter((cmd) => !cmd.devOnly);
+  const publicBody = toBody(publicCommands);
+  const fullBody = toBody(commands);
+  const guildId = options?.guildId;
+  const devGuildId = options?.devGuildId;
 
   if (guildId) {
+    const body = guildId === devGuildId ? fullBody : publicBody;
     await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body });
-    console.log(`Registered ${body.length} guild commands for ${guildId}`);
+    console.log(
+      `Registered ${body.length} guild commands for ${guildId}` +
+        (guildId === devGuildId ? " (includes dev)" : ""),
+    );
   } else {
-    await rest.put(Routes.applicationCommands(clientId), { body });
-    console.log(`Registered ${body.length} global commands`);
+    await rest.put(Routes.applicationCommands(clientId), { body: publicBody });
+    console.log(`Registered ${publicBody.length} global commands`);
+  }
+
+  if (devGuildId && devGuildId !== guildId) {
+    await rest.put(Routes.applicationGuildCommands(clientId, devGuildId), { body: fullBody });
+    console.log(`Registered ${fullBody.length} commands (incl. /demo /test) for DEV_GUILD_ID ${devGuildId}`);
+  } else if (!devGuildId) {
+    const skipped = commands.filter((cmd) => cmd.devOnly).map((cmd) => `/${cmd.data.name}`);
+    if (skipped.length > 0) {
+      console.log(`Dev commands hidden (set DEV_GUILD_ID to enable): ${skipped.join(", ")}`);
+    }
   }
 }
 
-export function attachCommandHandler(client: Client, commands: BotCommand[]): void {
+function canRunDevCommand(
+  interaction: ChatInputCommandInteraction | AutocompleteInteraction,
+  config: Pick<EnvConfig, "devGuildId" | "devUserIds">,
+): boolean {
+  if (config.devGuildId && interaction.guildId !== config.devGuildId) return false;
+  if (config.devUserIds.length === 0) return true;
+  return config.devUserIds.includes(interaction.user.id);
+}
+
+export function attachCommandHandler(
+  client: Client,
+  commands: BotCommand[],
+  config: Pick<EnvConfig, "devGuildId" | "devUserIds">,
+): void {
   const commandMap = new Collection<string, BotCommand>();
   for (const command of commands) {
     commandMap.set(command.data.name, command);
@@ -64,6 +103,10 @@ export function attachCommandHandler(client: Client, commands: BotCommand[]): vo
     if (interaction.isAutocomplete()) {
       const command = commandMap.get(interaction.commandName);
       if (command?.autocomplete) {
+        if (command.devOnly && !canRunDevCommand(interaction, config)) {
+          await interaction.respond([]);
+          return;
+        }
         try {
           await command.autocomplete(interaction);
         } catch (error) {
@@ -75,6 +118,9 @@ export function attachCommandHandler(client: Client, commands: BotCommand[]): vo
 
     if (interaction.isButton()) {
       try {
+        const handledDemo = await handleDemoButton(interaction);
+        if (handledDemo) return;
+
         const handledBet = await handleBettingButton(interaction);
         if (handledBet) return;
 
@@ -94,6 +140,9 @@ export function attachCommandHandler(client: Client, commands: BotCommand[]): vo
 
     if (interaction.isModalSubmit()) {
       try {
+        const handledDemo = await handleDemoModal(interaction);
+        if (handledDemo) return;
+
         const handled = await handleBettingModal(interaction);
         if (handled) return;
       } catch (error) {
@@ -112,6 +161,14 @@ export function attachCommandHandler(client: Client, commands: BotCommand[]): vo
 
     const command = commandMap.get(interaction.commandName);
     if (!command) return;
+
+    if (command.devOnly && !canRunDevCommand(interaction, config)) {
+      await interaction.reply({
+        content: "That command is only available in the developer test server.",
+        ephemeral: true,
+      });
+      return;
+    }
 
     try {
       await command.execute(interaction);
