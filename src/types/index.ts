@@ -1,12 +1,17 @@
+export type AnnounceFeed = "tier1" | "all" | "tracked";
+
 export interface GuildSettings {
   guildId: string;
   channelId: string;
   bettingChannelId?: string;
   announceTournaments: boolean;
   announceMatches: boolean;
+  feedMode: AnnounceFeed;
   minMatchStars: number;
   featuredOnly: boolean;
   matchReminderMinutes: number;
+  morningAnnounceHour: number;
+  timezone: string;
   tournamentReminderHours: number;
   bettingOpenMinutes: number;
   bettingLockMinutesAfterStart: number;

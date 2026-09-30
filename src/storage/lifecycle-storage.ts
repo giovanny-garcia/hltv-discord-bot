@@ -22,6 +22,7 @@ function rowToSession(row: Record<string, unknown>): MatchLifecycleSession {
     winnerSide: row.winner_side ? (Number(row.winner_side) as 1 | 2) : undefined,
     hideSpoilers: Boolean(row.hide_spoilers),
     bettingOpenSent: Boolean(row.betting_open_sent),
+    morningAnnounceSent: Boolean(row.morning_announce_sent),
     matchStartSent: Boolean(row.match_start_sent),
     bettingLockSent: Boolean(row.betting_lock_sent),
     matchFinishSent: Boolean(row.match_finish_sent),
@@ -49,6 +50,13 @@ export function getActiveLifecycleSessions(guildId: string): MatchLifecycleSessi
   return rows.map(rowToSession);
 }
 
+export function getLifecycleSessionsForGuild(guildId: string): MatchLifecycleSession[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM match_lifecycle WHERE guild_id = ? ORDER BY scheduled_at DESC")
+    .all(guildId) as Record<string, unknown>[];
+  return rows.map(rowToSession);
+}
+
 export function ensureLifecycleSession(
   guildId: string,
   match: NormalizedGgscoreMatch,
@@ -62,9 +70,9 @@ export function ensureLifecycleSession(
       INSERT INTO match_lifecycle (
         guild_id, match_id, team1_name, team2_name, event_name, format,
         scheduled_at, status, maps_announced, team1_series, team2_series,
-        hide_spoilers, betting_open_sent, match_start_sent, betting_lock_sent,
+        hide_spoilers, betting_open_sent, morning_announce_sent, match_start_sent, betting_lock_sent,
         match_finish_sent, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', 0, 0, 0, 1, 0, 0, 0, 0, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', 0, 0, 0, 1, 0, 0, 0, 0, 0, ?)
     `)
     .run(
       guildId,
@@ -92,6 +100,7 @@ export function ensureLifecycleSession(
     team2_series: 0,
     hide_spoilers: 1,
     betting_open_sent: 0,
+    morning_announce_sent: 0,
     match_start_sent: 0,
     betting_lock_sent: 0,
     match_finish_sent: 0,
@@ -114,6 +123,7 @@ export function updateLifecycleSession(
       | "winnerSide"
       | "hideSpoilers"
       | "bettingOpenSent"
+      | "morningAnnounceSent"
       | "matchStartSent"
       | "bettingLockSent"
       | "matchFinishSent"
@@ -142,6 +152,7 @@ export function updateLifecycleSession(
         winner_side = ?,
         hide_spoilers = ?,
         betting_open_sent = ?,
+        morning_announce_sent = ?,
         match_start_sent = ?,
         betting_lock_sent = ?,
         match_finish_sent = ?,
@@ -159,6 +170,7 @@ export function updateLifecycleSession(
       next.winnerSide ?? null,
       next.hideSpoilers ? 1 : 0,
       next.bettingOpenSent ? 1 : 0,
+      next.morningAnnounceSent ? 1 : 0,
       next.matchStartSent ? 1 : 0,
       next.bettingLockSent ? 1 : 0,
       next.matchFinishSent ? 1 : 0,

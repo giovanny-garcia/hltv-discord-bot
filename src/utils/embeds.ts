@@ -3,7 +3,8 @@ import { EmbedBuilder } from "discord.js";
 export function settingsEmbed(settings: {
   channelId: string;
   announceMatches: boolean;
-  matchReminderMinutes: number;
+  morningAnnounceHour: number;
+  timezone?: string;
   bettingOpenMinutes?: number;
   bettingLockMinutesAfterStart?: number;
   trackedEventCount?: number;
@@ -12,8 +13,8 @@ export function settingsEmbed(settings: {
     settings.trackedEventCount === undefined
       ? null
       : settings.trackedEventCount === 0
-        ? "None — announcements paused"
-        : `${settings.trackedEventCount} event(s)`;
+        ? "None — tier-one feed only"
+        : `${settings.trackedEventCount} extra event(s)`;
 
   return new EmbedBuilder()
     .setColor(0x95a5a6)
@@ -26,8 +27,8 @@ export function settingsEmbed(settings: {
         inline: true,
       },
       {
-        name: "Match reminder",
-        value: `${settings.matchReminderMinutes} min before start`,
+        name: "Morning announce",
+        value: `${settings.morningAnnounceHour}:00 ${settings.timezone ?? "UTC"}`,
         inline: true,
       },
       ...(settings.bettingOpenMinutes !== undefined
@@ -49,7 +50,7 @@ export function settingsEmbed(settings: {
         : []),
     )
     .setDescription(
-      "Only matches from **tracked events** are announced. Use `/events track` to pick tournaments.",
+      "Majors, BLAST, ESL Pro League, and IEM are included after `/setup`. Use `/events track` to add other tournaments.",
     )
     .setTimestamp(new Date());
 }

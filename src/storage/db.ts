@@ -2,7 +2,13 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { GuildSettings, SeenItem, SeenItemKind, TrackedEvent } from "../types/index.js";
+import type {
+  AnnounceFeed,
+  GuildSettings,
+  SeenItem,
+  SeenItemKind,
+  TrackedEvent,
+} from "../types/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbPath = join(__dirname, "../../data/bot.db");
@@ -16,9 +22,12 @@ function rowToSettings(row: Record<string, unknown>): GuildSettings {
     bettingChannelId: row.betting_channel_id ? String(row.betting_channel_id) : undefined,
     announceTournaments: Boolean(row.announce_tournaments),
     announceMatches: Boolean(row.announce_matches),
+    feedMode: parseFeedMode(row.announce_feed),
     minMatchStars: Number(row.min_match_stars),
     featuredOnly: Boolean(row.featured_only),
     matchReminderMinutes: Number(row.match_reminder_minutes),
+    morningAnnounceHour: Number(row.morning_announce_hour ?? 9),
+    timezone: row.timezone ? String(row.timezone) : "UTC",
     tournamentReminderHours: Number(row.tournament_reminder_hours),
     bettingOpenMinutes: Number(row.betting_open_minutes ?? 15),
     bettingLockMinutesAfterStart: Number(row.betting_lock_minutes_after_start ?? 3),
@@ -61,6 +70,11 @@ export function initDb(): void {
     CREATE TABLE IF NOT EXISTS ggscore_api_usage (
       usage_date TEXT PRIMARY KEY,
       request_count INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS ggscore_sync_state (
+      state_key TEXT PRIMARY KEY,
+      state_value TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS user_balances (
@@ -111,6 +125,23 @@ export function initDb(): void {
       PRIMARY KEY (guild_id, event_id)
     );
 
+    CREATE TABLE IF NOT EXISTS guild_muted_events (
+      guild_id TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      added_at INTEGER NOT NULL,
+      PRIMARY KEY (guild_id, event_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS guild_calendar_events (
+      guild_id TEXT NOT NULL,
+      match_id TEXT NOT NULL,
+      discord_event_id TEXT NOT NULL,
+      scheduled_at INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      PRIMARY KEY (guild_id, match_id)
+    );
+
     CREATE TABLE IF NOT EXISTS match_lifecycle (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       guild_id TEXT NOT NULL,
@@ -140,6 +171,19 @@ export function initDb(): void {
   `);
 
   migrateGuildSettingsColumns();
+  migrateLifecycleColumns();
+}
+
+function migrateLifecycleColumns(): void {
+  const columns = db.prepare("PRAGMA table_info(match_lifecycle)").all() as { name: string }[];
+  if (!columns.some((col) => col.name === "morning_announce_sent")) {
+    db.exec("ALTER TABLE match_lifecycle ADD COLUMN morning_announce_sent INTEGER NOT NULL DEFAULT 0");
+  }
+}
+
+function parseFeedMode(value: unknown): AnnounceFeed {
+  if (value === "all" || value === "tracked" || value === "tier1") return value;
+  return "tier1";
 }
 
 function migrateGuildSettingsColumns(): void {
@@ -154,6 +198,15 @@ function migrateGuildSettingsColumns(): void {
     db.exec(
       "ALTER TABLE guild_settings ADD COLUMN betting_lock_minutes_after_start INTEGER NOT NULL DEFAULT 3",
     );
+  }
+  if (!columns.some((col) => col.name === "morning_announce_hour")) {
+    db.exec("ALTER TABLE guild_settings ADD COLUMN morning_announce_hour INTEGER NOT NULL DEFAULT 9");
+  }
+  if (!columns.some((col) => col.name === "announce_feed")) {
+    db.exec("ALTER TABLE guild_settings ADD COLUMN announce_feed TEXT NOT NULL DEFAULT 'tier1'");
+  }
+  if (!columns.some((col) => col.name === "timezone")) {
+    db.exec("ALTER TABLE guild_settings ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC'");
   }
 }
 
@@ -180,9 +233,12 @@ export function upsertGuildSettings(
     bettingChannelId: partial?.bettingChannelId ?? existing?.bettingChannelId,
     announceTournaments: partial?.announceTournaments ?? existing?.announceTournaments ?? true,
     announceMatches: partial?.announceMatches ?? existing?.announceMatches ?? true,
+    feedMode: partial?.feedMode ?? existing?.feedMode ?? "tier1",
     minMatchStars: partial?.minMatchStars ?? existing?.minMatchStars ?? 0,
     featuredOnly: partial?.featuredOnly ?? existing?.featuredOnly ?? false,
     matchReminderMinutes: partial?.matchReminderMinutes ?? existing?.matchReminderMinutes ?? 30,
+    morningAnnounceHour: partial?.morningAnnounceHour ?? existing?.morningAnnounceHour ?? 9,
+    timezone: partial?.timezone ?? existing?.timezone ?? "UTC",
     tournamentReminderHours:
       partial?.tournamentReminderHours ?? existing?.tournamentReminderHours ?? 24,
     bettingOpenMinutes: partial?.bettingOpenMinutes ?? existing?.bettingOpenMinutes ?? 15,
@@ -193,11 +249,15 @@ export function upsertGuildSettings(
   db.prepare(`
     INSERT INTO guild_settings (
       guild_id, channel_id, betting_channel_id, announce_tournaments, announce_matches,
-      min_match_stars, featured_only, match_reminder_minutes, tournament_reminder_hours,
+      announce_feed,
+      min_match_stars, featured_only, match_reminder_minutes, morning_announce_hour,
+      timezone, tournament_reminder_hours,
       betting_open_minutes, betting_lock_minutes_after_start
     ) VALUES (
       @guildId, @channelId, @bettingChannelId, @announceTournaments, @announceMatches,
-      @minMatchStars, @featuredOnly, @matchReminderMinutes, @tournamentReminderHours,
+      @feedMode,
+      @minMatchStars, @featuredOnly, @matchReminderMinutes, @morningAnnounceHour,
+      @timezone, @tournamentReminderHours,
       @bettingOpenMinutes, @bettingLockMinutesAfterStart
     )
     ON CONFLICT(guild_id) DO UPDATE SET
@@ -205,9 +265,12 @@ export function upsertGuildSettings(
       betting_channel_id = COALESCE(excluded.betting_channel_id, guild_settings.betting_channel_id),
       announce_tournaments = excluded.announce_tournaments,
       announce_matches = excluded.announce_matches,
+      announce_feed = excluded.announce_feed,
       min_match_stars = excluded.min_match_stars,
       featured_only = excluded.featured_only,
       match_reminder_minutes = excluded.match_reminder_minutes,
+      morning_announce_hour = excluded.morning_announce_hour,
+      timezone = excluded.timezone,
       tournament_reminder_hours = excluded.tournament_reminder_hours,
       betting_open_minutes = excluded.betting_open_minutes,
       betting_lock_minutes_after_start = excluded.betting_lock_minutes_after_start
@@ -217,9 +280,12 @@ export function upsertGuildSettings(
     bettingChannelId: settings.bettingChannelId ?? null,
     announceTournaments: settings.announceTournaments ? 1 : 0,
     announceMatches: settings.announceMatches ? 1 : 0,
+    feedMode: settings.feedMode,
     minMatchStars: settings.minMatchStars,
     featuredOnly: settings.featuredOnly ? 1 : 0,
     matchReminderMinutes: settings.matchReminderMinutes,
+    morningAnnounceHour: settings.morningAnnounceHour,
+    timezone: settings.timezone,
     tournamentReminderHours: settings.tournamentReminderHours,
     bettingOpenMinutes: settings.bettingOpenMinutes,
     bettingLockMinutesAfterStart: settings.bettingLockMinutesAfterStart,
@@ -239,9 +305,12 @@ export function updateGuildSettings(
     bettingChannelId: partial.bettingChannelId ?? existing.bettingChannelId,
     announceTournaments: partial.announceTournaments ?? existing.announceTournaments,
     announceMatches: partial.announceMatches ?? existing.announceMatches,
+    feedMode: partial.feedMode ?? existing.feedMode,
     minMatchStars: partial.minMatchStars ?? existing.minMatchStars,
     featuredOnly: partial.featuredOnly ?? existing.featuredOnly,
     matchReminderMinutes: partial.matchReminderMinutes ?? existing.matchReminderMinutes,
+    morningAnnounceHour: partial.morningAnnounceHour ?? existing.morningAnnounceHour,
+    timezone: partial.timezone ?? existing.timezone,
     tournamentReminderHours:
       partial.tournamentReminderHours ?? existing.tournamentReminderHours,
     bettingOpenMinutes: partial.bettingOpenMinutes ?? existing.bettingOpenMinutes,
@@ -330,6 +399,72 @@ export function incrementGgscoreUsage(count = 1, date = todayUtc()): number {
   return getGgscoreUsage(date);
 }
 
+const LAST_HEAVY_SYNC_KEY = "last_heavy_sync_at";
+const MANUAL_HEAVY_PREFIX = "manual_heavy_syncs:";
+const SCHEDULED_SLOT_PREFIX = "scheduled_slot:";
+
+function getSyncState(key: string): string | null {
+  const row = db
+    .prepare("SELECT state_value FROM ggscore_sync_state WHERE state_key = ?")
+    .get(key) as { state_value: string } | undefined;
+  return row?.state_value ?? null;
+}
+
+function setSyncState(key: string, value: string): void {
+  db.prepare(`
+    INSERT INTO ggscore_sync_state (state_key, state_value)
+    VALUES (?, ?)
+    ON CONFLICT(state_key) DO UPDATE SET state_value = excluded.state_value
+  `).run(key, value);
+}
+
+function deleteSyncState(key: string): void {
+  db.prepare("DELETE FROM ggscore_sync_state WHERE state_key = ?").run(key);
+}
+
+export function getLastHeavySyncAt(): number {
+  const value = Number(getSyncState(LAST_HEAVY_SYNC_KEY) ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+export function setLastHeavySyncAt(at = Date.now()): void {
+  setSyncState(LAST_HEAVY_SYNC_KEY, String(at));
+}
+
+export function getManualHeavySyncCount(date = todayUtc()): number {
+  const value = Number(getSyncState(`${MANUAL_HEAVY_PREFIX}${date}`) ?? 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+export function incrementManualHeavySyncCount(date = todayUtc()): number {
+  const next = getManualHeavySyncCount(date) + 1;
+  setSyncState(`${MANUAL_HEAVY_PREFIX}${date}`, String(next));
+  return next;
+}
+
+export function hasScheduledSyncSlot(dateUtc: string, hour: number): boolean {
+  return getSyncState(`${SCHEDULED_SLOT_PREFIX}${dateUtc}:${hour}`) === "1";
+}
+
+export function markScheduledSyncSlot(dateUtc: string, hour: number): void {
+  setSyncState(`${SCHEDULED_SLOT_PREFIX}${dateUtc}:${hour}`, "1");
+}
+
+export function clearScheduledSyncSlot(dateUtc: string, hour: number): void {
+  deleteSyncState(`${SCHEDULED_SLOT_PREFIX}${dateUtc}:${hour}`);
+}
+
+export function pruneScheduledSyncSlots(keepDateUtc: string): void {
+  const rows = db
+    .prepare("SELECT state_key FROM ggscore_sync_state WHERE state_key LIKE ?")
+    .all(`${SCHEDULED_SLOT_PREFIX}%`) as { state_key: string }[];
+  const remove = db.prepare("DELETE FROM ggscore_sync_state WHERE state_key = ?");
+  const keepPrefix = `${SCHEDULED_SLOT_PREFIX}${keepDateUtc}:`;
+  for (const row of rows) {
+    if (!row.state_key.startsWith(keepPrefix)) remove.run(row.state_key);
+  }
+}
+
 export function setGgscoreCache(cacheKey: string, payload: unknown): void {
   db.prepare(`
     INSERT INTO ggscore_cache (cache_key, payload, fetched_at)
@@ -406,5 +541,40 @@ export function clearTrackedEvents(guildId: string): number {
   const result = db
     .prepare("DELETE FROM guild_tracked_events WHERE guild_id = ?")
     .run(guildId);
+  return result.changes;
+}
+
+export function getMutedEvents(guildId: string): TrackedEvent[] {
+  const rows = db
+    .prepare(
+      "SELECT * FROM guild_muted_events WHERE guild_id = ? ORDER BY event_name COLLATE NOCASE",
+    )
+    .all(guildId) as Record<string, unknown>[];
+
+  return rows.map((row) => ({
+    guildId: String(row.guild_id),
+    eventId: String(row.event_id),
+    eventName: String(row.event_name),
+    addedAt: Number(row.added_at),
+  }));
+}
+
+export function muteEvent(guildId: string, eventId: string, eventName: string): void {
+  db.prepare(`
+    INSERT INTO guild_muted_events (guild_id, event_id, event_name, added_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(guild_id, event_id) DO UPDATE SET event_name = excluded.event_name
+  `).run(guildId, eventId, eventName, Date.now());
+}
+
+export function unmuteEvent(guildId: string, eventId: string): void {
+  db.prepare("DELETE FROM guild_muted_events WHERE guild_id = ? AND event_id = ?").run(
+    guildId,
+    eventId,
+  );
+}
+
+export function clearMutedEvents(guildId: string): number {
+  const result = db.prepare("DELETE FROM guild_muted_events WHERE guild_id = ?").run(guildId);
   return result.changes;
 }

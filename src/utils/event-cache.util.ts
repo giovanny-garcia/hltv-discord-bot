@@ -7,7 +7,8 @@ import {
   normalizeGgscoreMatch,
   type NormalizedGgscoreMatch,
 } from "./ggscore-match.util.js";
-import type { TrackedEvent } from "../types/index.js";
+import type { AnnounceFeed, TrackedEvent } from "../types/index.js";
+import { isTierOneEvent } from "./tier-one.js";
 
 export interface CachedEventOption {
   id: string;
@@ -62,6 +63,28 @@ export function filterTrackedMatches(
   tracked: TrackedEvent[],
 ): NormalizedGgscoreMatch[] {
   return matches.filter((match) => matchIsTracked(match, tracked));
+}
+
+export function matchIsEligible(
+  match: NormalizedGgscoreMatch,
+  feedMode: AnnounceFeed,
+  tracked: TrackedEvent[],
+  muted: TrackedEvent[],
+): boolean {
+  if (matchIsTracked(match, muted)) return false;
+  if (matchIsTracked(match, tracked)) return true;
+  if (feedMode === "all") return Boolean(match.eventId || match.eventName);
+  if (feedMode === "tier1") return isTierOneEvent(match.eventName);
+  return false;
+}
+
+export function filterEligibleMatches(
+  matches: NormalizedGgscoreMatch[],
+  feedMode: AnnounceFeed,
+  tracked: TrackedEvent[],
+  muted: TrackedEvent[],
+): NormalizedGgscoreMatch[] {
+  return matches.filter((match) => matchIsEligible(match, feedMode, tracked, muted));
 }
 
 export function matchBelongsToEvent(

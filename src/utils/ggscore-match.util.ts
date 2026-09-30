@@ -1,4 +1,5 @@
 import type { GgscoreMatch, GgscoreTeamSide } from "../types/ggscore.js";
+import { hourInTimeZone } from "./time-zone.js";
 
 export interface NormalizedGgscoreMatch {
   id: string;
@@ -124,6 +125,23 @@ export function matchUrl(normalized: NormalizedGgscoreMatch): string | undefined
 export function formatTimestamp(unixSeconds?: number): string {
   if (!unixSeconds) return "TBA";
   return `<t:${unixSeconds}:F> (<t:${unixSeconds}:R>)`;
+}
+
+export function formatCountdown(unixSeconds?: number): string {
+  if (!unixSeconds) return "TBA";
+  return `<t:${unixSeconds}:t> — starts <t:${unixSeconds}:R>`;
+}
+
+export function isSameUtcDay(a: Date, b: Date): boolean {
+  return (
+    a.getUTCFullYear() === b.getUTCFullYear() &&
+    a.getUTCMonth() === b.getUTCMonth() &&
+    a.getUTCDate() === b.getUTCDate()
+  );
+}
+
+export function isPastMorningHour(now: Date, hour: number, timeZone = "UTC"): boolean {
+  return hourInTimeZone(now, timeZone) >= hour;
 }
 
 export function isUpcoming(normalized: NormalizedGgscoreMatch): boolean {
